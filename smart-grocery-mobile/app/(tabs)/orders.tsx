@@ -1,17 +1,30 @@
 import React, { useEffect, useState } from 'react';
-import { Redirect } from 'expo-router';
-import { Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { Redirect, router } from 'expo-router';
+import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
-import type { Order } from '../../src/types/api';
+import type { Order, OrderChatSummary } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
 import { getHomeRouteForRole, isCustomerRole } from '../../src/utils/roles';
 
+function getChatLabel(summary?: OrderChatSummary) {
+  if (!summary?.has_messages) {
+    return 'Start Chat';
+  }
+
+  if (summary.unread_count > 0) {
+    return 'Reply to Store';
+  }
+
+  return 'Open Chat';
+}
+
 export default function OrdersScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [chatSummaries, setChatSummaries] = useState<Record<number, OrderChatSummary>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { user } = useAuth();
@@ -25,6 +38,8 @@ export default function OrdersScreen() {
         return 'Accepted';
       case 'picking':
         return 'Picking';
+      case 'awaiting_review':
+        return 'Awaiting review';
       case 'out_for_delivery':
         return 'Out for delivery';
       case 'delivered':
@@ -36,12 +51,24 @@ export default function OrdersScreen() {
 
   const fetchOrders = async () => {
     try {
-      const response = await api.get<Order[]>('/orders/my-orders');
-      const sortedOrders = [...response.data].sort(
+      const [ordersResult, chatResult] = await Promise.allSettled([
+        api.get<Order[]>('/orders/my-orders'),
+        api.get<OrderChatSummary[]>('/order-chats/summary'),
+      ]);
+      if (ordersResult.status !== 'fulfilled') {
+        throw ordersResult.reason;
+      }
+
+      const ordersResponse = ordersResult.value;
+      const chatResponse = chatResult.status === 'fulfilled' ? chatResult.value : null;
+      const sortedOrders = [...ordersResponse.data].sort(
         (firstOrder, secondOrder) =>
           new Date(secondOrder.created_at).getTime() - new Date(firstOrder.created_at).getTime()
       );
       setOrders(sortedOrders);
+      setChatSummaries(
+        Object.fromEntries((chatResponse?.data ?? []).map((summary) => [summary.order_id, summary]))
+      );
     } catch (error: any) {
       Alert.alert('Could not load orders', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -53,12 +80,24 @@ export default function OrdersScreen() {
   useEffect(() => {
     const loadOrders = async () => {
       try {
-        const response = await api.get<Order[]>('/orders/my-orders');
-        const sortedOrders = [...response.data].sort(
+        const [ordersResult, chatResult] = await Promise.allSettled([
+          api.get<Order[]>('/orders/my-orders'),
+          api.get<OrderChatSummary[]>('/order-chats/summary'),
+        ]);
+        if (ordersResult.status !== 'fulfilled') {
+          throw ordersResult.reason;
+        }
+
+        const ordersResponse = ordersResult.value;
+        const chatResponse = chatResult.status === 'fulfilled' ? chatResult.value : null;
+        const sortedOrders = [...ordersResponse.data].sort(
           (firstOrder, secondOrder) =>
             new Date(secondOrder.created_at).getTime() - new Date(firstOrder.created_at).getTime()
         );
         setOrders(sortedOrders);
+        setChatSummaries(
+          Object.fromEntries((chatResponse?.data ?? []).map((summary) => [summary.order_id, summary]))
+        );
       } catch (error: any) {
         Alert.alert('Could not load orders', error.response?.data?.detail || 'Please try again.');
       } finally {
@@ -102,11 +141,19 @@ export default function OrdersScreen() {
         }
         renderItem={({ item, index }) => (
           <View style={styles.card}>
+            {(() => {
+              const chatSummary = chatSummaries[item.id];
+
+              return (
+                <>
             <Text style={styles.orderTitle}>
               {`Order ${orders.length - index}`}
             </Text>
             <Text style={styles.orderMeta}>Reference: #{item.id}</Text>
             <Text style={styles.orderMeta}>Status: {formatOrderStatus(item.status)}</Text>
+            {item.delivery_window_label ? (
+              <Text style={styles.orderMeta}>Delivery window: {item.delivery_window_label}</Text>
+            ) : null}
             <Text style={styles.orderMeta}>
               Created: {new Date(item.created_at).toLocaleString()}
             </Text>
@@ -117,6 +164,33 @@ export default function OrdersScreen() {
                 {formatCedi(orderItem.unit_price)}
               </Text>
             ))}
+            {!['delivered', 'cancelled'].includes(item.status) ? (
+              <>
+                {chatSummary?.has_messages ? (
+                  <Text style={styles.chatMeta}>
+                    {chatSummary.unread_count > 0
+                      ? `${chatSummary.unread_count} new ${chatSummary.unread_count === 1 ? 'store message' : 'store messages'}`
+                      : `Last update from ${chatSummary.last_sender_role === 'customer' ? 'you' : 'store team'}`}
+                  </Text>
+                ) : (
+                  <Text style={styles.chatMeta}>No conversation yet about this order.</Text>
+                )}
+                <TouchableOpacity
+                  style={styles.chatButton}
+                  onPress={() => router.push(`/order-chat/${item.id}`)}
+                >
+                  <Text style={styles.chatButtonText}>{getChatLabel(chatSummary)}</Text>
+                  {chatSummary?.unread_count ? (
+                    <View style={styles.chatBadge}>
+                      <Text style={styles.chatBadgeText}>{chatSummary.unread_count}</Text>
+                    </View>
+                  ) : null}
+                </TouchableOpacity>
+              </>
+            ) : null}
+                </>
+              );
+            })()}
           </View>
         )}
       />
@@ -169,5 +243,39 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
+  },
+  chatButton: {
+    marginTop: 14,
+    alignSelf: 'flex-start',
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chatButtonText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+  },
+  chatMeta: {
+    marginTop: 14,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  chatBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  chatBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
   },
 });

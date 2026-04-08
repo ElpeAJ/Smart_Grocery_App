@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Redirect } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -14,11 +14,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
-import type { Order, Store } from '../../src/types/api';
+import type { Order, OrderChatSummary, Store } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
 import { canHandleOperations, getHomeRouteForRole } from '../../src/utils/roles';
 
-const VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking'];
+const VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking', 'awaiting_review'];
 
 function formatOrderStatus(status: Order['status']) {
   switch (status) {
@@ -28,6 +28,8 @@ function formatOrderStatus(status: Order['status']) {
       return 'Accepted';
     case 'picking':
       return 'Picking';
+    case 'awaiting_review':
+      return 'Awaiting review';
     case 'out_for_delivery':
       return 'Out for delivery';
     case 'delivered':
@@ -41,6 +43,7 @@ export default function OperationsScreen() {
   const { user } = useAuth();
   const role = user?.role;
   const [orders, setOrders] = useState<Order[]>([]);
+  const [chatSummaries, setChatSummaries] = useState<Record<number, OrderChatSummary>>({});
   const [stores, setStores] = useState<Store[]>([]);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,14 +51,24 @@ export default function OperationsScreen() {
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
 
-  const canReleaseToDelivery = role === 'admin' || role === 'manager' || role === 'staff';
+  const canSubmitForReview = role === 'staff' || role === 'admin' || role === 'manager';
+  const canReleaseToDelivery = role === 'admin' || role === 'manager';
 
   const loadOperations = async () => {
     try {
-      const [ordersResponse, storesResponse] = await Promise.all([
+      const [ordersResult, storesResult, chatResult] = await Promise.allSettled([
         api.get<Order[]>('/orders/'),
         api.get<Store[]>('/stores/'),
+        api.get<OrderChatSummary[]>('/order-chats/summary'),
       ]);
+
+      if (ordersResult.status !== 'fulfilled') {
+        throw ordersResult.reason;
+      }
+
+      const ordersResponse = ordersResult.value;
+      const storesResponse = storesResult.status === 'fulfilled' ? storesResult.value : null;
+      const chatResponse = chatResult.status === 'fulfilled' ? chatResult.value : null;
 
       const visibleOrders = ordersResponse.data
         .filter((order) => VISIBLE_STATUSES.includes(order.status))
@@ -65,7 +78,10 @@ export default function OperationsScreen() {
         );
 
       setOrders(visibleOrders);
-      setStores(storesResponse.data);
+      setStores(storesResponse?.data ?? []);
+      setChatSummaries(
+        Object.fromEntries((chatResponse?.data ?? []).map((summary) => [summary.order_id, summary]))
+      );
     } catch (error: any) {
       Alert.alert('Could not load operations', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -90,6 +106,19 @@ export default function OperationsScreen() {
       Alert.alert('Could not update picked item', error.response?.data?.detail || 'Please try again.');
     } finally {
       setBusyItemId(null);
+    }
+  };
+
+  const submitForReview = async (orderId: number) => {
+    setBusyOrderId(orderId);
+
+    try {
+      await api.put(`/orders/${orderId}/status`, null, { params: { status: 'awaiting_review' } });
+      await loadOperations();
+    } catch (error: any) {
+      Alert.alert('Could not submit order', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setBusyOrderId(null);
     }
   };
 
@@ -133,7 +162,7 @@ export default function OperationsScreen() {
           <View style={styles.header}>
             <Text style={styles.title}>Operations Queue</Text>
             <Text style={styles.subtitle}>
-              Pick orders item by item, confirm accuracy, and release complete orders to delivery.
+              Pick orders item by item, submit completed picks for review, and let managers release approved orders to delivery.
             </Text>
           </View>
         }
@@ -144,6 +173,7 @@ export default function OperationsScreen() {
           </View>
         }
         renderItem={({ item }) => {
+          const chatSummary = chatSummaries[item.id];
           const expanded = expandedOrderId === item.id;
           const orderTotal = item.items.reduce(
             (sum, orderItem) => sum + orderItem.quantity * orderItem.unit_price,
@@ -151,10 +181,11 @@ export default function OperationsScreen() {
           );
           const storeName =
             item.store_name || stores.find((store) => store.id === item.store_id)?.name || 'Unassigned';
-          const isReadyForDelivery = item.all_items_picked;
+          const isReadyForReview = item.all_items_picked;
+          const isAwaitingReview = item.status === 'awaiting_review';
 
           return (
-            <View style={[styles.card, isReadyForDelivery && styles.readyCard]}>
+            <View style={[styles.card, isReadyForReview && styles.readyCard]}>
               <TouchableOpacity
                 style={styles.cardHeader}
                 onPress={() => setExpandedOrderId(expanded ? null : item.id)}
@@ -164,11 +195,14 @@ export default function OperationsScreen() {
                   <Text style={styles.metaText}>Customer: {item.customer_name || `Customer #${item.user_id}`}</Text>
                   <Text style={styles.metaText}>Status: {formatOrderStatus(item.status)}</Text>
                   <Text style={styles.metaText}>Store: {storeName}</Text>
+                  {item.delivery_window_label ? (
+                    <Text style={styles.metaText}>Delivery window: {item.delivery_window_label}</Text>
+                  ) : null}
                   <Text style={styles.metaText}>Created: {new Date(item.created_at).toLocaleString()}</Text>
                 </View>
                 <View style={styles.summaryWrap}>
                   <Text style={styles.totalText}>{formatCedi(orderTotal)}</Text>
-                  <Text style={[styles.expandText, isReadyForDelivery && styles.readyExpandText]}>
+                  <Text style={[styles.expandText, isReadyForReview && styles.readyExpandText]}>
                     {expanded ? 'Hide' : 'Open'}
                   </Text>
                 </View>
@@ -207,26 +241,73 @@ export default function OperationsScreen() {
                     {item.items.filter((orderItem) => orderItem.is_picked).length} of {item.items.length} items picked
                   </Text>
 
-                  {isReadyForDelivery ? (
+                  <Text style={styles.chatMeta}>
+                    {!chatSummary?.has_messages
+                      ? 'No customer conversation yet.'
+                      : chatSummary.unread_count > 0
+                        ? `${chatSummary.unread_count} new ${chatSummary.unread_count === 1 ? 'customer message' : 'customer messages'}`
+                        : `Last update from ${chatSummary.last_sender_role === 'customer' ? 'customer' : 'store team'}`}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.chatButton}
+                    onPress={() => router.push(`/order-chat/${item.id}`)}
+                  >
+                    <Text style={styles.chatButtonText}>
+                      {!chatSummary?.has_messages
+                        ? 'Start Chat'
+                        : chatSummary.unread_count > 0
+                          ? 'Reply to Customer'
+                          : 'Open Chat'}
+                    </Text>
+                    {chatSummary?.unread_count ? (
+                      <View style={styles.chatBadge}>
+                        <Text style={styles.chatBadgeText}>{chatSummary.unread_count}</Text>
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+
+                  {isReadyForReview ? (
                     <View style={styles.readyBanner}>
-                      <Text style={styles.readyBannerText}>Fully picked and waiting for delivery handoff.</Text>
+                      <Text style={styles.readyBannerText}>
+                        {isAwaitingReview
+                          ? 'Fully picked and waiting for manager approval.'
+                          : 'Fully picked and ready to be submitted for review.'}
+                      </Text>
                     </View>
                   ) : null}
 
-                  {isReadyForDelivery && canReleaseToDelivery ? (
+                  {isReadyForReview && !isAwaitingReview && canSubmitForReview ? (
+                    <TouchableOpacity
+                      style={[styles.releaseButton, busyOrderId === item.id && styles.disabledButton]}
+                      onPress={() => submitForReview(item.id)}
+                      disabled={busyOrderId === item.id}
+                    >
+                      <Text style={styles.releaseButtonText}>
+                        {busyOrderId === item.id ? 'Sending...' : 'Mark Picking Complete'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {isAwaitingReview && canReleaseToDelivery ? (
                     <TouchableOpacity
                       style={[styles.releaseButton, busyOrderId === item.id && styles.disabledButton]}
                       onPress={() => releaseToDelivery(item.id)}
                       disabled={busyOrderId === item.id}
                     >
                       <Text style={styles.releaseButtonText}>
-                        {busyOrderId === item.id ? 'Sending...' : 'Ready for Delivery'}
+                        {busyOrderId === item.id ? 'Sending...' : 'Approve for Delivery'}
                       </Text>
                     </TouchableOpacity>
                   ) : null}
 
-                  {!isReadyForDelivery ? (
-                    <Text style={styles.readyText}>Pick every item to unlock delivery handoff.</Text>
+                  {!isReadyForReview ? (
+                    <Text style={styles.readyText}>Pick every item to unlock manager review.</Text>
+                  ) : null}
+
+                  {isAwaitingReview && role === 'staff' ? (
+                    <Text style={styles.readyText}>
+                      Waiting for manager or admin approval before driver assignment.
+                    </Text>
                   ) : null}
                 </View>
               ) : null}
@@ -355,6 +436,40 @@ const styles = StyleSheet.create({
   progressText: {
     marginTop: 6,
     color: '#475569',
+  },
+  chatButton: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    backgroundColor: '#DBEAFE',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  chatButtonText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+  },
+  chatMeta: {
+    marginTop: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  chatBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  chatBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '800',
   },
   readyBanner: {
     marginTop: 12,

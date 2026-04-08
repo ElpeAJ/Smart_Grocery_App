@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 
-import { getCategoryTheme } from '../utils/catalog';
+import { getProductTheme } from '../utils/catalog';
 
 type ProductArtworkProps = {
   imageUrl?: string | null;
@@ -17,7 +17,7 @@ export default function ProductArtwork({
   productName,
   variant = 'card',
 }: ProductArtworkProps) {
-  const theme = getCategoryTheme(categoryName);
+  const theme = getProductTheme(categoryName, productName);
   const sizeStyle =
     variant === 'hero'
       ? styles.heroFrame

@@ -1,12 +1,22 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from .. import models, schemas
 from ..database import get_db
 from ..dependencies import get_current_user
+from ..delivery_windows import get_available_delivery_windows, resolve_delivery_window
 from ..notification_utils import create_notification, create_notifications_for_roles
 
 router = APIRouter(prefix="/cart", tags=["Cart"])
+
+
+@router.get("/delivery-windows", response_model=list[schemas.DeliveryWindowResponse])
+def get_checkout_delivery_windows(
+    current_user: models.User = Depends(get_current_user),
+):
+    return get_available_delivery_windows()
 
 
 def get_or_create_cart(db: Session, user_id: int) -> models.Cart:
@@ -165,6 +175,11 @@ def checkout_cart(
     if not cart.items:
         raise HTTPException(status_code=400, detail="Your cart is empty")
 
+    try:
+        selected_window = resolve_delivery_window(checkout_data.delivery_window_key)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
     for item in cart.items:
         if item.quantity > item.product.stock_quantity:
             raise HTTPException(
@@ -176,6 +191,7 @@ def checkout_cart(
         user_id=current_user.id,
         store_id=cart.store_id,
         status="pending",
+        delivery_window_label=selected_window["label"],
     )
     db.add(new_order)
     db.flush()
@@ -205,6 +221,10 @@ def checkout_cart(
             order_id=new_order.id,
             driver_id=None,
             delivery_address=checkout_data.delivery_address,
+            delivery_window_key=selected_window["key"],
+            delivery_window_label=selected_window["label"],
+            delivery_window_start=datetime.fromisoformat(selected_window["starts_at"]),
+            delivery_window_end=datetime.fromisoformat(selected_window["ends_at"]),
             status="assigned",
         )
     )
@@ -217,14 +237,14 @@ def checkout_cart(
         db,
         user_id=current_user.id,
         title="Order placed",
-        message=f"Your order #{new_order.id} has been placed successfully.",
+        message=f"Your order #{new_order.id} has been placed for {selected_window['label']}.",
         kind="order",
     )
     create_notifications_for_roles(
         db,
         roles=("admin", "manager", "staff"),
         title="New order placed",
-        message=f"A new order #{new_order.id} is waiting in the operations queue.",
+        message=f"A new order #{new_order.id} is waiting in the operations queue for {selected_window['label']}.",
         kind="order",
     )
     db.commit()

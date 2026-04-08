@@ -66,7 +66,8 @@ export type Order = {
   customer_name: string | null;
   store_id: number | null;
   store_name: string | null;
-  status: 'pending' | 'accepted' | 'picking' | 'out_for_delivery' | 'delivered' | 'cancelled';
+  delivery_window_label: string | null;
+  status: 'pending' | 'accepted' | 'picking' | 'awaiting_review' | 'out_for_delivery' | 'delivered' | 'cancelled';
   created_at: string;
   items: OrderItem[];
   all_items_picked: boolean;
@@ -80,8 +81,18 @@ export type Delivery = {
   customer_name: string | null;
   store_name: string | null;
   delivery_address: string;
+  delivery_window_label: string | null;
+  delivery_window_start: string | null;
+  delivery_window_end: string | null;
   status: 'assigned' | 'on_the_way' | 'delivered';
   order_status: Order['status'] | null;
+};
+
+export type DeliveryWindow = {
+  key: string;
+  label: string;
+  starts_at: string;
+  ends_at: string;
 };
 
 export type ReportPeriod = 'day' | 'week' | 'month' | 'quarter' | 'half_year' | 'year';
@@ -114,4 +125,39 @@ export type Notification = {
   kind: string;
   is_read: boolean;
   created_at: string;
+};
+
+export type OrderChatMessage = {
+  id: number;
+  thread_id: number;
+  sender_user_id: number;
+  sender_name: string | null;
+  sender_role: string | null;
+  message: string;
+  message_type: 'text' | 'suggestion' | 'system';
+  is_read: boolean;
+  created_at: string;
+};
+
+export type OrderChatThread = {
+  id: number;
+  order_id: number;
+  order_status: Order['status'];
+  is_open: boolean;
+  can_send_message: boolean;
+  counterpart_label: string;
+  created_at: string;
+  updated_at: string;
+  messages: OrderChatMessage[];
+};
+
+export type OrderChatSummary = {
+  order_id: number;
+  has_messages: boolean;
+  unread_count: number;
+  message_count: number;
+  last_message_preview: string | null;
+  last_sender_name: string | null;
+  last_sender_role: string | null;
+  last_message_at: string | null;
 };

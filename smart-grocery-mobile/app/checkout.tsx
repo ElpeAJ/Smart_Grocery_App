@@ -5,7 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import api from '../src/api/client';
 import { useAuth } from '../src/context/AuthContext';
-import type { UserProfile } from '../src/types/api';
+import type { DeliveryWindow, UserProfile } from '../src/types/api';
 import { getHomeRouteForRole, isCustomerRole } from '../src/utils/roles';
 
 export default function CheckoutScreen() {
@@ -13,16 +13,23 @@ export default function CheckoutScreen() {
   const role = user?.role;
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'cash_on_delivery' | 'mobile_money' | 'card'>('cash_on_delivery');
+  const [deliveryWindows, setDeliveryWindows] = useState<DeliveryWindow[]>([]);
+  const [selectedDeliveryWindowKey, setSelectedDeliveryWindowKey] = useState('');
   const [placingOrder, setPlacingOrder] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const response = await api.get<UserProfile>('/profile/me');
-        if (response.data.delivery_address) {
-          setDeliveryAddress(response.data.delivery_address);
+        const [profileResponse, windowsResponse] = await Promise.all([
+          api.get<UserProfile>('/profile/me'),
+          api.get<DeliveryWindow[]>('/cart/delivery-windows'),
+        ]);
+        if (profileResponse.data.delivery_address) {
+          setDeliveryAddress(profileResponse.data.delivery_address);
         }
+        setDeliveryWindows(windowsResponse.data);
+        setSelectedDeliveryWindowKey(windowsResponse.data[0]?.key ?? '');
       } catch {
         // Keep checkout usable even if the profile request fails.
       } finally {
@@ -39,6 +46,11 @@ export default function CheckoutScreen() {
       return;
     }
 
+    if (!selectedDeliveryWindowKey) {
+      Alert.alert('Choose a delivery window', 'Select an available delivery timeframe before placing the order.');
+      return;
+    }
+
     setPlacingOrder(true);
 
     try {
@@ -49,6 +61,7 @@ export default function CheckoutScreen() {
       await api.post('/cart/checkout', {
         delivery_address: deliveryAddress.trim(),
         payment_method: paymentMethod,
+        delivery_window_key: selectedDeliveryWindowKey,
       });
 
       Alert.alert('Order placed', 'Your grocery order has been placed successfully.');
@@ -75,6 +88,32 @@ export default function CheckoutScreen() {
         <Text style={styles.subtitle}>Confirm how and where you want your groceries delivered.</Text>
 
         <View style={styles.card}>
+          <Text style={styles.windowPolicyTitle}>Delivery timing</Text>
+          <Text style={styles.windowPolicyText}>
+            Public orders run from 8:00 AM to 8:00 PM, while staff shifts allow delivery windows up to 10:00 PM.
+          </Text>
+
+          <Text style={styles.label}>Delivery Window</Text>
+          <View style={styles.deliveryWindowList}>
+            {deliveryWindows.map((window) => {
+              const active = selectedDeliveryWindowKey === window.key;
+              return (
+                <TouchableOpacity
+                  key={window.key}
+                  style={[styles.deliveryWindowCard, active && styles.deliveryWindowCardActive]}
+                  onPress={() => setSelectedDeliveryWindowKey(window.key)}
+                >
+                  <Text style={[styles.deliveryWindowLabel, active && styles.deliveryWindowLabelActive]}>
+                    {window.label}
+                  </Text>
+                  <Text style={[styles.deliveryWindowHint, active && styles.deliveryWindowHintActive]}>
+                    Scheduled slot
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           <Text style={styles.label}>Delivery Address</Text>
           <TextInput
             style={[styles.input, styles.textArea]}
@@ -155,11 +194,54 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     padding: 16,
   },
+  windowPolicyTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  windowPolicyText: {
+    color: '#475569',
+    marginBottom: 16,
+    lineHeight: 20,
+  },
   label: {
     fontSize: 14,
     fontWeight: '600',
     color: '#334155',
     marginBottom: 8,
+  },
+  deliveryWindowList: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  deliveryWindowCard: {
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  deliveryWindowCardActive: {
+    borderColor: '#1D4ED8',
+    backgroundColor: '#DBEAFE',
+  },
+  deliveryWindowLabel: {
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  deliveryWindowLabelActive: {
+    color: '#1D4ED8',
+  },
+  deliveryWindowHint: {
+    marginTop: 4,
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  deliveryWindowHintActive: {
+    color: '#1D4ED8',
   },
   helperText: {
     marginTop: -8,

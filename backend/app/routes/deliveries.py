@@ -88,6 +88,22 @@ def assign_delivery_driver(
             raise HTTPException(status_code=400, detail="Selected user is not a driver")
 
     delivery.driver_id = payload.driver_id
+    thread = delivery.order.chat_thread
+    if thread and payload.driver_id is not None:
+        driver_name = driver.full_name if payload.driver_id is not None else "A driver"
+        db.add(
+            models.OrderChatMessage(
+                thread_id=thread.id,
+                sender_user_id=current_user.id,
+                message=(
+                    f"{driver_name} joined this order chat as the delivery driver. "
+                    "Store picking staff have left the active conversation."
+                ),
+                message_type="system",
+                is_read=0,
+            )
+        )
+        thread.updated_at = datetime.utcnow()
     if payload.driver_id is not None:
         create_notification(
             db,

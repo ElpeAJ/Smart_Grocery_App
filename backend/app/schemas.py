@@ -105,6 +105,10 @@ class ProductCategoryUpdate(BaseModel):
     category_id: int
 
 
+class ProductStoreUpdate(BaseModel):
+    store_id: int
+
+
 class ProductPriceUpdate(BaseModel):
     price: float = Field(gt=0)
 
@@ -157,6 +161,14 @@ class CartResponse(BaseModel):
 class CheckoutRequest(BaseModel):
     delivery_address: str = Field(min_length=5)
     payment_method: Literal["cash_on_delivery", "mobile_money", "card"]
+    delivery_window_key: str = Field(min_length=1)
+
+
+class DeliveryWindowResponse(BaseModel):
+    key: str
+    label: str
+    starts_at: datetime
+    ends_at: datetime
 
 
 class OrderItemCreate(BaseModel):
@@ -187,7 +199,8 @@ class OrderResponse(BaseModel):
     customer_name: Optional[str] = None
     store_id: Optional[int]
     store_name: Optional[str] = None
-    status: Literal["pending", "accepted", "picking", "out_for_delivery", "delivered", "cancelled"]
+    delivery_window_label: Optional[str] = None
+    status: Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]
     created_at: datetime
     items: List[OrderItemResponse]
     all_items_picked: bool
@@ -210,8 +223,11 @@ class DeliveryResponse(BaseModel):
     customer_name: Optional[str] = None
     store_name: Optional[str] = None
     delivery_address: str
+    delivery_window_label: Optional[str] = None
+    delivery_window_start: Optional[datetime] = None
+    delivery_window_end: Optional[datetime] = None
     status: Literal["assigned", "on_the_way", "delivered"]
-    order_status: Optional[Literal["pending", "accepted", "picking", "out_for_delivery", "delivered", "cancelled"]] = None
+    order_status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = None
 
     class Config:
         from_attributes = True
@@ -256,3 +272,53 @@ class NotificationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class NotificationStatusUpdate(BaseModel):
+    is_read: bool
+
+
+class OrderChatMessageCreate(BaseModel):
+    message: str = Field(min_length=1, max_length=1000)
+    message_type: Literal["text", "suggestion", "system"] = "text"
+
+
+class OrderChatMessageResponse(BaseModel):
+    id: int
+    thread_id: int
+    sender_user_id: int
+    sender_name: Optional[str] = None
+    sender_role: Optional[str] = None
+    message: str
+    message_type: Literal["text", "suggestion", "system"]
+    is_read: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class OrderChatThreadResponse(BaseModel):
+    id: int
+    order_id: int
+    order_status: Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]
+    is_open: bool
+    can_send_message: bool
+    counterpart_label: str
+    created_at: datetime
+    updated_at: datetime
+    messages: List[OrderChatMessageResponse]
+
+    class Config:
+        from_attributes = True
+
+
+class OrderChatSummaryResponse(BaseModel):
+    order_id: int
+    has_messages: bool
+    unread_count: int
+    message_count: int
+    last_message_preview: Optional[str] = None
+    last_sender_name: Optional[str] = None
+    last_sender_role: Optional[str] = None
+    last_message_at: Optional[datetime] = None

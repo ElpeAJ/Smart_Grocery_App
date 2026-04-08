@@ -1,4 +1,5 @@
 import os
+from sqlalchemy import text
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +18,31 @@ from .routes.users import router as user_router
 from .routes.reports import router as report_router
 from .routes.categories import router as category_router
 from .routes.notifications import router as notification_router
+from .routes.order_chat import router as order_chat_router
 
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_delivery_window_columns():
+    with engine.begin() as connection:
+        order_columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(orders)")).fetchall()
+        }
+        delivery_columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(deliveries)")).fetchall()
+        }
+
+        if "delivery_window_label" not in order_columns:
+            connection.execute(text("ALTER TABLE orders ADD COLUMN delivery_window_label VARCHAR"))
+
+        if "delivery_window_key" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_key VARCHAR"))
+        if "delivery_window_label" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_label VARCHAR"))
+        if "delivery_window_start" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_start DATETIME"))
+        if "delivery_window_end" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_end DATETIME"))
 
 DEFAULT_PRODUCT_CATEGORIES = [
     "Fresh Fruits",
@@ -74,6 +98,7 @@ def seed_default_categories():
 
 
 seed_default_categories()
+ensure_delivery_window_columns()
 
 app = FastAPI(
     title="Smart Grocery Store API",
@@ -110,6 +135,7 @@ app.include_router(user_router)
 app.include_router(report_router)
 app.include_router(category_router)
 app.include_router(notification_router)
+app.include_router(order_chat_router)
 
 
 @app.get("/")

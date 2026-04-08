@@ -23,6 +23,13 @@ import { getCategoryTheme } from '../../src/utils/catalog';
 import { formatCedi } from '../../src/utils/currency';
 import { getHomeRouteForRole, isCustomerRole } from '../../src/utils/roles';
 
+type ShopListItem =
+  | { key: 'sticky-search'; type: 'sticky-search' }
+  | { key: 'categories'; type: 'categories' }
+  | { key: 'most-shopped'; type: 'most-shopped' }
+  | { key: 'products-header'; type: 'products-header' }
+  | { key: `product-${number}`; type: 'product'; product: Product };
+
 function ProductCard({
   item,
   desiredQuantity,
@@ -106,7 +113,7 @@ function ProductCard({
 }
 
 export default function ShopScreen() {
-  const flatListRef = useRef<FlatList<Product>>(null);
+  const flatListRef = useRef<FlatList<ShopListItem>>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -123,6 +130,11 @@ export default function ShopScreen() {
   const [productsSectionOffset, setProductsSectionOffset] = useState(0);
   const { user } = useAuth();
   const role = user?.role;
+
+  const submitSearch = () =>
+    fetchShopData(selectedStoreId, selectedCategoryId, searchTerm, {
+      jumpToResults: true,
+    });
 
   const fetchShopData = async (
     storeId = selectedStoreId,
@@ -164,6 +176,17 @@ export default function ShopScreen() {
 
       if (options?.jumpToResults) {
         requestAnimationFrame(() => {
+          const productsHeaderRowIndex = listItems.findIndex((item) => item.type === 'products-header');
+
+          if (productsHeaderRowIndex >= 0) {
+            flatListRef.current?.scrollToIndex({
+              index: productsHeaderRowIndex,
+              animated: true,
+              viewPosition: 0,
+            });
+            return;
+          }
+
           flatListRef.current?.scrollToOffset({
             offset: Math.max(0, productsSectionOffset - 8),
             animated: true,
@@ -259,6 +282,23 @@ export default function ShopScreen() {
     [activeCategory, activeStore, categories.length, products.length, stores.length]
   );
 
+  const listItems = useMemo<ShopListItem[]>(() => {
+    const items: ShopListItem[] = [{ key: 'sticky-search', type: 'sticky-search' }];
+
+    if (!hasActiveSearch) {
+      items.push({ key: 'categories', type: 'categories' });
+    }
+
+    if (!selectedCategoryId && !hasActiveSearch) {
+      items.push({ key: 'most-shopped', type: 'most-shopped' });
+    }
+
+    items.push({ key: 'products-header', type: 'products-header' });
+    items.push(...products.map((product) => ({ key: `product-${product.id}` as const, type: 'product' as const, product })));
+
+    return items;
+  }, [hasActiveSearch, products, selectedCategoryId]);
+
   if (loading) {
     return <LoadingScreen label="Loading products..." />;
   }
@@ -271,9 +311,191 @@ export default function ShopScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
         ref={flatListRef}
-        data={products}
-        keyExtractor={(item) => item.id.toString()}
+        data={listItems}
+        keyExtractor={(item) => item.key}
+        renderItem={({ item }) => {
+          if (item.type === 'sticky-search') {
+            return (
+              <View style={styles.filterCardStickyShell}>
+                <View style={styles.filterCard}>
+                  <Text style={styles.sectionTitle}>Search and store</Text>
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search groceries"
+                    value={searchTerm}
+                    onChangeText={(value) => {
+                      setSearchTerm(value);
+
+                      if (!value.trim()) {
+                        fetchShopData(selectedStoreId, selectedCategoryId, '', { jumpToResults: false });
+                        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+                      }
+                    }}
+                    onSubmitEditing={submitSearch}
+                    returnKeyType="search"
+                  />
+                  {hasActiveSearch ? (
+                    <View style={styles.searchBanner}>
+                      <Text style={styles.searchBannerLabel}>Search active</Text>
+                      <Text style={styles.searchBannerText} numberOfLines={2}>
+                        Showing results for: {searchTerm.trim()}
+                      </Text>
+                    </View>
+                  ) : null}
+                  <Text style={styles.filterLabel}>Preferred store {savingStore ? '(saving...)' : ''}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+                    {[{ id: -1, name: 'All stores', location: '' }, ...stores].map((storeItem) => {
+                      const isAllStores = storeItem.id === -1;
+                      const isActive = isAllStores ? selectedStoreId === null : selectedStoreId === storeItem.id;
+
+                      return (
+                        <TouchableOpacity
+                          key={storeItem.id}
+                          style={[styles.chip, isActive && styles.chipActive]}
+                          onPress={() => savePreferredStore(isAllStores ? null : storeItem.id)}
+                        >
+                          <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{storeItem.name}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </View>
+            );
+          }
+
+          if (item.type === 'categories') {
+            return (
+              <View style={styles.headerWrap}>
+                <View style={styles.sectionBlock}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.sectionTitleLarge}>Shop by category</Text>
+                    <Text style={styles.sectionHint}>Tap a card to focus the catalog</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryCardsRow}>
+                    {[{ id: -1, name: 'All categories' }, ...categories].map((categoryItem) => {
+                      const isAllCategories = categoryItem.id === -1;
+                      const isActive = isAllCategories ? selectedCategoryId === null : selectedCategoryId === categoryItem.id;
+                      const theme = getCategoryTheme(categoryItem.name);
+
+                      return (
+                        <TouchableOpacity
+                          key={categoryItem.id}
+                          style={[
+                            styles.categoryCard,
+                            { backgroundColor: theme.backgroundColor, borderColor: isActive ? theme.accentColor : 'transparent' },
+                          ]}
+                          onPress={() => setSelectedCategoryId(isAllCategories ? null : categoryItem.id)}
+                        >
+                          <View style={[styles.categoryEmojiBadge, { backgroundColor: theme.accentColor }]}>
+                            <Text style={styles.categoryEmoji}>{theme.emoji}</Text>
+                          </View>
+                          <Text style={[styles.categoryCardTitle, { color: theme.textColor }]} numberOfLines={2}>
+                            {categoryItem.name}
+                          </Text>
+                          <Text style={[styles.categoryCardMeta, { color: theme.accentColor }]}>
+                            {isActive ? 'Viewing now' : 'Open category'}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </View>
+            );
+          }
+
+          if (item.type === 'most-shopped') {
+            return (
+              <View style={styles.headerWrap}>
+                <View style={styles.sectionBlock}>
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.sectionTitleLarge}>Most shopped</Text>
+                    <Text style={styles.sectionHint}>Customer favorites</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularRow}>
+                    {mostShoppedProducts.length ? (
+                      mostShoppedProducts.map((popularItem) => (
+                        <TouchableOpacity
+                          key={popularItem.id}
+                          style={styles.popularCard}
+                          onPress={() => router.push(`/product/${popularItem.id}`)}
+                        >
+                          <ProductArtwork
+                            imageUrl={popularItem.image_url}
+                            categoryName={popularItem.category?.name}
+                            productName={popularItem.name}
+                            variant="mini"
+                          />
+                          <Text style={styles.popularName} numberOfLines={1}>
+                            {popularItem.name}
+                          </Text>
+                          <Text style={styles.popularCategory}>{popularItem.category?.name || 'Groceries'}</Text>
+                          <Text style={styles.popularPrice}>{formatCedi(popularItem.price)}</Text>
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <Text style={styles.emptyPopularText}>No purchase data yet.</Text>
+                    )}
+                  </ScrollView>
+                </View>
+              </View>
+            );
+          }
+
+          if (item.type === 'products-header') {
+            return (
+              <View
+                style={styles.productsHeader}
+                onLayout={(event) => {
+                  setProductsSectionOffset(event.nativeEvent.layout.y);
+                }}
+              >
+                <View>
+                  <Text style={styles.productsTitle}>
+                    {hasActiveSearch
+                      ? `Search results for "${searchTerm.trim()}"`
+                      : activeCategory
+                        ? activeCategory.name
+                        : 'Available Products'}
+                  </Text>
+                  <Text style={styles.productsMeta}>
+                    {products.length} {products.length === 1 ? 'item' : 'items'} ready to shop
+                  </Text>
+                  {hasActiveSearch ? (
+                    <Text style={styles.searchResultsMeta}>Results narrowed by your current search.</Text>
+                  ) : null}
+                </View>
+              </View>
+            );
+          }
+
+          return (
+            <ProductCard
+              item={item.product}
+              desiredQuantity={desiredQuantities[item.product.id] ?? 1}
+              submittingId={submittingId}
+              onChangeDesiredQuantity={changeDesiredQuantity}
+              onAddToCart={addToCart}
+            />
+          );
+        }}
         contentContainerStyle={styles.listContent}
+        stickyHeaderIndices={[1]}
+        onScrollToIndexFailed={({ index, averageItemLength }) => {
+          flatListRef.current?.scrollToOffset({
+            offset: Math.max(0, index * averageItemLength),
+            animated: true,
+          });
+
+          setTimeout(() => {
+            flatListRef.current?.scrollToIndex({
+              index,
+              animated: true,
+              viewPosition: 0,
+            });
+          }, 120);
+        }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -310,148 +532,6 @@ export default function ShopScreen() {
                 ))}
               </View>
             </View>
-
-            <View style={styles.filterCard}>
-              <Text style={styles.sectionTitle}>Search and store</Text>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search groceries"
-                value={searchTerm}
-                onChangeText={(value) => {
-                  setSearchTerm(value);
-
-                  if (!value.trim()) {
-                    fetchShopData(selectedStoreId, selectedCategoryId, '', { jumpToResults: false });
-                    flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-                  }
-                }}
-                onSubmitEditing={() =>
-                  fetchShopData(selectedStoreId, selectedCategoryId, searchTerm, {
-                    jumpToResults: true,
-                  })
-                }
-                returnKeyType="search"
-              />
-              {hasActiveSearch ? (
-                <View style={styles.searchBanner}>
-                  <Text style={styles.searchBannerLabel}>Search active</Text>
-                  <Text style={styles.searchBannerText} numberOfLines={2}>
-                    Showing results for: {searchTerm.trim()}
-                  </Text>
-                </View>
-              ) : null}
-              <Text style={styles.filterLabel}>Preferred store {savingStore ? '(saving...)' : ''}</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                {[{ id: -1, name: 'All stores', location: '' }, ...stores].map((item) => {
-                  const isAllStores = item.id === -1;
-                  const isActive = isAllStores ? selectedStoreId === null : selectedStoreId === item.id;
-
-                  return (
-                    <TouchableOpacity
-                      key={item.id}
-                      style={[styles.chip, isActive && styles.chipActive]}
-                      onPress={() => savePreferredStore(isAllStores ? null : item.id)}
-                    >
-                      <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{item.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-
-            {!hasActiveSearch ? (
-              <View style={styles.sectionBlock}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionTitleLarge}>Shop by category</Text>
-                  <Text style={styles.sectionHint}>Tap a card to focus the catalog</Text>
-                </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryCardsRow}>
-                  {[{ id: -1, name: 'All categories' }, ...categories].map((item) => {
-                    const isAllCategories = item.id === -1;
-                    const isActive = isAllCategories ? selectedCategoryId === null : selectedCategoryId === item.id;
-                    const theme = getCategoryTheme(item.name);
-
-                    return (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[
-                          styles.categoryCard,
-                          { backgroundColor: theme.backgroundColor, borderColor: isActive ? theme.accentColor : 'transparent' },
-                        ]}
-                        onPress={() => setSelectedCategoryId(isAllCategories ? null : item.id)}
-                      >
-                        <View style={[styles.categoryEmojiBadge, { backgroundColor: theme.accentColor }]}>
-                          <Text style={styles.categoryEmoji}>{theme.emoji}</Text>
-                        </View>
-                        <Text style={[styles.categoryCardTitle, { color: theme.textColor }]} numberOfLines={2}>
-                          {item.name}
-                        </Text>
-                        <Text style={[styles.categoryCardMeta, { color: theme.accentColor }]}>
-                          {isActive ? 'Viewing now' : 'Open category'}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            ) : null}
-
-            {!selectedCategoryId && !hasActiveSearch ? (
-              <View style={styles.sectionBlock}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionTitleLarge}>Most shopped</Text>
-                  <Text style={styles.sectionHint}>Customer favorites</Text>
-                </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularRow}>
-                  {mostShoppedProducts.length ? (
-                    mostShoppedProducts.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={styles.popularCard}
-                        onPress={() => router.push(`/product/${item.id}`)}
-                      >
-                        <ProductArtwork
-                          imageUrl={item.image_url}
-                          categoryName={item.category?.name}
-                          productName={item.name}
-                          variant="mini"
-                        />
-                        <Text style={styles.popularName} numberOfLines={1}>
-                          {item.name}
-                        </Text>
-                        <Text style={styles.popularCategory}>{item.category?.name || 'Groceries'}</Text>
-                        <Text style={styles.popularPrice}>{formatCedi(item.price)}</Text>
-                      </TouchableOpacity>
-                    ))
-                  ) : (
-                    <Text style={styles.emptyPopularText}>No purchase data yet.</Text>
-                  )}
-                </ScrollView>
-              </View>
-            ) : null}
-
-            <View
-              style={styles.productsHeader}
-              onLayout={(event) => {
-                setProductsSectionOffset(event.nativeEvent.layout.y);
-              }}
-            >
-              <View>
-                <Text style={styles.productsTitle}>
-                  {hasActiveSearch
-                    ? `Search results for "${searchTerm.trim()}"`
-                    : activeCategory
-                      ? activeCategory.name
-                      : 'Available Products'}
-                </Text>
-                <Text style={styles.productsMeta}>
-                  {products.length} {products.length === 1 ? 'item' : 'items'} ready to shop
-                </Text>
-                {hasActiveSearch ? (
-                  <Text style={styles.searchResultsMeta}>Results narrowed by your current search.</Text>
-                ) : null}
-              </View>
-            </View>
           </View>
         }
         ListEmptyComponent={
@@ -462,15 +542,6 @@ export default function ShopScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <ProductCard
-            item={item}
-            desiredQuantity={desiredQuantities[item.id] ?? 1}
-            submittingId={submittingId}
-            onChangeDesiredQuantity={changeDesiredQuantity}
-            onAddToCart={addToCart}
-          />
-        )}
       />
     </SafeAreaView>
   );
@@ -488,6 +559,14 @@ const styles = StyleSheet.create({
   },
   headerWrap: {
     gap: 16,
+  },
+  filterCardStickyShell: {
+    backgroundColor: '#F6F6F0',
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 18,
+    marginBottom: 4,
+    zIndex: 2,
   },
   heroCard: {
     backgroundColor: '#0F5A35',
@@ -556,6 +635,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 16,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
   },
   sectionTitle: {
     fontSize: 16,

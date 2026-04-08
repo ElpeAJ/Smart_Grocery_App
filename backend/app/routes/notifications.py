@@ -21,6 +21,28 @@ def get_my_notifications(
     )
 
 
+@router.put("/read-all", response_model=list[schemas.NotificationResponse])
+def mark_all_notifications_read(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    notifications = (
+        db.query(models.Notification)
+        .filter(models.Notification.user_id == current_user.id, models.Notification.is_read == 0)
+        .all()
+    )
+    for notification in notifications:
+        notification.is_read = 1
+
+    db.commit()
+    return (
+        db.query(models.Notification)
+        .filter(models.Notification.user_id == current_user.id)
+        .order_by(models.Notification.created_at.desc())
+        .all()
+    )
+
+
 @router.put("/{notification_id}/read", response_model=schemas.NotificationResponse)
 def mark_notification_read(
     notification_id: int,
@@ -44,23 +66,26 @@ def mark_notification_read(
     return notification
 
 
-@router.put("/read-all", response_model=list[schemas.NotificationResponse])
-def mark_all_notifications_read(
+@router.put("/{notification_id}", response_model=schemas.NotificationResponse)
+def update_notification_status(
+    notification_id: int,
+    payload: schemas.NotificationStatusUpdate,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    notifications = (
+    notification = (
         db.query(models.Notification)
-        .filter(models.Notification.user_id == current_user.id, models.Notification.is_read == 0)
-        .all()
+        .filter(
+            models.Notification.id == notification_id,
+            models.Notification.user_id == current_user.id,
+        )
+        .first()
     )
-    for notification in notifications:
-        notification.is_read = 1
+    if not notification:
+        raise HTTPException(status_code=404, detail="Notification not found")
 
+    notification.is_read = 1 if payload.is_read else 0
     db.commit()
-    return (
-        db.query(models.Notification)
-        .filter(models.Notification.user_id == current_user.id)
-        .order_by(models.Notification.created_at.desc())
-        .all()
-    )
+    db.refresh(notification)
+    return notification
+

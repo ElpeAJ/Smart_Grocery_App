@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Redirect } from 'expo-router';
 import {
   Alert,
@@ -22,10 +22,12 @@ const ROLE_OPTIONS: AppUser['role'][] = ['customer', 'staff', 'manager', 'driver
 
 type AdminSection = 'store' | 'category' | 'product' | 'roles';
 type TeamRoleGroup = AppUser['role'];
+type AttentionIssue = 'missing_store' | 'uncategorized' | 'low_stock';
 
 export default function AdminScreen() {
   const { user } = useAuth();
   const role = user?.role;
+  const listRef = useRef<FlatList<Product>>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
@@ -39,6 +41,7 @@ export default function AdminScreen() {
   const [updatingPriceProductId, setUpdatingPriceProductId] = useState<number | null>(null);
   const [updatingImageProductId, setUpdatingImageProductId] = useState<number | null>(null);
   const [updatingCategoryProductId, setUpdatingCategoryProductId] = useState<number | null>(null);
+  const [updatingStoreProductId, setUpdatingStoreProductId] = useState<number | null>(null);
   const [updatingCategoryNameId, setUpdatingCategoryNameId] = useState<number | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
 
@@ -55,6 +58,7 @@ export default function AdminScreen() {
   const [stockDrafts, setStockDrafts] = useState<Record<number, string>>({});
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
   const [imageDrafts, setImageDrafts] = useState<Record<number, string>>({});
+  const [storeDrafts, setStoreDrafts] = useState<Record<number, string>>({});
   const [categoryDrafts, setCategoryDrafts] = useState<Record<number, string>>({});
   const [openSections, setOpenSections] = useState<Record<AdminSection, boolean>>({
     store: false,
@@ -63,7 +67,8 @@ export default function AdminScreen() {
     roles: false,
   });
   const [activeRoleGroup, setActiveRoleGroup] = useState<TeamRoleGroup>('staff');
-  const [openCatalogCategoryName, setOpenCatalogCategoryName] = useState<string | null>(null);
+  const [focusedCategoryName, setFocusedCategoryName] = useState<string | null>(null);
+  const [workspaceOffsetY, setWorkspaceOffsetY] = useState<number | null>(null);
 
   const canAccessAdmin = canManageCatalog(role);
   const canManageRoles = role === 'admin';
@@ -83,7 +88,7 @@ export default function AdminScreen() {
     [activeRoleGroup, users]
   );
 
-  const catalogRows = useMemo(() => {
+  const catalogSections = useMemo(() => {
     const grouped = new Map<string, Product[]>();
 
     products.forEach((product) => {
@@ -95,34 +100,50 @@ export default function AdminScreen() {
 
     return Array.from(grouped.entries())
       .sort(([firstName], [secondName]) => firstName.localeCompare(secondName))
-      .flatMap(([categoryNameValue, groupedProducts]) => {
-        const rows: (
-          | { type: 'category'; key: string; title: string; count: number }
-          | { type: 'product'; key: string; product: Product }
-        )[] = [
-          {
-            type: 'category',
-            key: `category-${categoryNameValue}`,
-            title: categoryNameValue,
-            count: groupedProducts.length,
-          },
-        ];
+      .map(([categoryNameValue, groupedProducts]) => ({
+        key: `category-${categoryNameValue}`,
+        title: categoryNameValue,
+        count: groupedProducts.length,
+        needsAttentionCount: groupedProducts.filter((product) => !product.store_id).length,
+        products: groupedProducts.sort((firstProduct, secondProduct) =>
+          firstProduct.name.localeCompare(secondProduct.name)
+        ),
+      }));
+  }, [products]);
 
-        if (openCatalogCategoryName === categoryNameValue) {
-          rows.push(
-            ...groupedProducts
-              .sort((firstProduct, secondProduct) => firstProduct.name.localeCompare(secondProduct.name))
-              .map((product) => ({
-                type: 'product' as const,
-                key: `product-${product.id}`,
-                product,
-              }))
-          );
+  const focusedCategory = useMemo(
+    () => catalogSections.find((section) => section.title === focusedCategoryName) ?? null,
+    [catalogSections, focusedCategoryName]
+  );
+
+  const needsAttentionProducts = useMemo(() => {
+    return products
+      .map((product) => {
+        const issues: AttentionIssue[] = [];
+        if (!product.store_id) {
+          issues.push('missing_store');
+        }
+        if (!product.category) {
+          issues.push('uncategorized');
+        }
+        if (product.stock_quantity <= 5) {
+          issues.push('low_stock');
         }
 
-        return rows;
-      });
-  }, [openCatalogCategoryName, products]);
+        return { product, issues };
+      })
+      .filter((entry) => entry.issues.length > 0)
+      .sort((firstEntry, secondEntry) => secondEntry.issues.length - firstEntry.issues.length);
+  }, [products]);
+
+  const attentionCounts = useMemo(
+    () => ({
+      missingStore: needsAttentionProducts.filter((entry) => entry.issues.includes('missing_store')).length,
+      uncategorized: needsAttentionProducts.filter((entry) => entry.issues.includes('uncategorized')).length,
+      lowStock: needsAttentionProducts.filter((entry) => entry.issues.includes('low_stock')).length,
+    }),
+    [needsAttentionProducts]
+  );
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -144,6 +165,11 @@ export default function AdminScreen() {
       setImageDrafts(
         Object.fromEntries(productsResponse.data.map((product) => [product.id, product.image_url ?? '']))
       );
+      setStoreDrafts(
+        Object.fromEntries(
+          productsResponse.data.map((product) => [product.id, product.store_id ? String(product.store_id) : ''])
+        )
+      );
       setCategoryDrafts(
         Object.fromEntries(categoriesResponse.data.map((category) => [category.id, category.name]))
       );
@@ -163,6 +189,19 @@ export default function AdminScreen() {
   useEffect(() => {
     loadCatalog();
   }, [loadCatalog]);
+
+  useEffect(() => {
+    if (!focusedCategoryName || workspaceOffsetY === null) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToOffset({
+        offset: Math.max(workspaceOffsetY - 16, 0),
+        animated: true,
+      });
+    });
+  }, [focusedCategoryName, workspaceOffsetY]);
 
   const toggleSection = (section: AdminSection) => {
     setOpenSections((currentSections) => ({
@@ -247,6 +286,11 @@ export default function AdminScreen() {
       return;
     }
 
+    if (!selectedStoreId) {
+      Alert.alert('Missing store', 'Choose the store that will own this product.');
+      return;
+    }
+
     if (Number.isNaN(parsedPrice) || parsedPrice <= 0) {
       Alert.alert('Invalid price', 'Enter a numeric price such as 20 or 20.5.');
       return;
@@ -260,7 +304,7 @@ export default function AdminScreen() {
     setCreatingProduct(true);
     try {
       await api.post('/products/', {
-        store_id: selectedStoreId ? Number(selectedStoreId) : null,
+        store_id: Number(selectedStoreId),
         category_id: Number(selectedCategoryId),
         name: productName.trim(),
         description: productDescription.trim() || null,
@@ -340,6 +384,26 @@ export default function AdminScreen() {
     }
   };
 
+  const assignStore = async (productId: number) => {
+    const nextStoreId = Number(storeDrafts[productId]);
+
+    if (Number.isNaN(nextStoreId) || nextStoreId <= 0) {
+      Alert.alert('Missing store', 'Choose a store before saving.');
+      return;
+    }
+
+    setUpdatingStoreProductId(productId);
+    try {
+      await api.put(`/products/${productId}/store`, { store_id: nextStoreId });
+      await loadCatalog();
+      Alert.alert('Store assigned', 'The product is now linked to a store.');
+    } catch (error: any) {
+      Alert.alert('Could not assign store', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setUpdatingStoreProductId(null);
+    }
+  };
+
   const assignCategory = async (productId: number, categoryId: number) => {
     setUpdatingCategoryProductId(productId);
     try {
@@ -374,11 +438,177 @@ export default function AdminScreen() {
     return <LoadingScreen label="Loading admin tools..." />;
   }
 
+  const renderProductManagementCard = (product: Product) => (
+    <View key={product.id} style={[styles.productCard, !product.store_id && styles.unassignedProductCard]}>
+      <Text style={styles.productTitle}>{product.name}</Text>
+      <Text style={styles.productMeta}>Category: {product.category?.name || 'Uncategorized'}</Text>
+      <Text style={styles.productMeta}>
+        Store: {stores.find((store) => store.id === product.store_id)?.name || 'Unassigned'}
+      </Text>
+      {!product.store_id ? (
+        <View style={styles.warningBanner}>
+          <Text style={styles.warningBannerText}>
+            This product is incomplete setup data until it is assigned to a store.
+          </Text>
+        </View>
+      ) : null}
+      <View style={styles.manageGrid}>
+        <View style={styles.manageColumn}>
+          <Text style={styles.manageLabel}>Price</Text>
+          <View style={styles.manageRow}>
+            <TextInput
+              style={[styles.input, styles.manageInput]}
+              keyboardType="decimal-pad"
+              value={priceDrafts[product.id] ?? ''}
+              onChangeText={(value) =>
+                setPriceDrafts((currentDrafts) => ({ ...currentDrafts, [product.id]: value }))
+              }
+            />
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                updatingPriceProductId === product.id && styles.disabledButton,
+              ]}
+              onPress={() => updatePrice(product.id)}
+              disabled={updatingPriceProductId === product.id}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {updatingPriceProductId === product.id ? 'Saving...' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.manageColumn}>
+          <Text style={styles.manageLabel}>Stock</Text>
+          <View style={styles.manageRow}>
+            <TextInput
+              style={[styles.input, styles.manageInput]}
+              keyboardType="number-pad"
+              value={stockDrafts[product.id] ?? ''}
+              onChangeText={(value) =>
+                setStockDrafts((currentDrafts) => ({ ...currentDrafts, [product.id]: value }))
+              }
+            />
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                updatingProductId === product.id && styles.disabledButton,
+              ]}
+              onPress={() => updateStock(product.id)}
+              disabled={updatingProductId === product.id}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {updatingProductId === product.id ? 'Saving...' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.manageColumn}>
+          <Text style={styles.manageLabel}>Image URL</Text>
+          <View style={styles.manageRow}>
+            <TextInput
+              style={[styles.input, styles.manageInput]}
+              value={imageDrafts[product.id] ?? ''}
+              onChangeText={(value) =>
+                setImageDrafts((currentDrafts) => ({ ...currentDrafts, [product.id]: value }))
+              }
+              autoCapitalize="none"
+              placeholder="https://..."
+            />
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                updatingImageProductId === product.id && styles.disabledButton,
+              ]}
+              onPress={() => updateImage(product.id)}
+              disabled={updatingImageProductId === product.id}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {updatingImageProductId === product.id ? 'Saving...' : 'Save'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {!product.store_id ? (
+          <View style={styles.manageColumn}>
+            <Text style={styles.manageLabel}>Assign store</Text>
+            <FlatList
+              data={stores}
+              horizontal
+              keyExtractor={(store) => `store-${product.id}-${store.id}`}
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.assignChips}
+              renderItem={({ item: store }) => {
+                const active = storeDrafts[product.id] === String(store.id);
+                return (
+                  <TouchableOpacity
+                    style={[styles.assignChip, active && styles.chipActive]}
+                    onPress={() =>
+                      setStoreDrafts((currentDrafts) => ({
+                        ...currentDrafts,
+                        [product.id]: String(store.id),
+                      }))
+                    }
+                  >
+                    <Text style={[styles.assignChipText, active && styles.chipTextActive]}>
+                      {store.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
+            <TouchableOpacity
+              style={[
+                styles.secondaryButton,
+                updatingStoreProductId === product.id && styles.disabledButton,
+              ]}
+              onPress={() => assignStore(product.id)}
+              disabled={updatingStoreProductId === product.id}
+            >
+              <Text style={styles.secondaryButtonText}>
+                {updatingStoreProductId === product.id ? 'Saving...' : 'Assign Store'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+      </View>
+
+      {!product.category ? (
+        <View style={styles.assignWrap}>
+          <Text style={styles.assignLabel}>Assign category</Text>
+          <FlatList
+            data={categories}
+            horizontal
+            keyExtractor={(category) => `assign-${product.id}-${category.id}`}
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.assignChips}
+            renderItem={({ item: category }) => (
+              <TouchableOpacity
+                style={[
+                  styles.assignChip,
+                  updatingCategoryProductId === product.id && styles.disabledButton,
+                ]}
+                onPress={() => assignCategory(product.id, category.id)}
+                disabled={updatingCategoryProductId === product.id}
+              >
+                <Text style={styles.assignChipText}>{category.name}</Text>
+              </TouchableOpacity>
+            )}
+          />
+        </View>
+      ) : null}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
-        data={catalogRows}
-        keyExtractor={(item) => item.key}
+        ref={listRef}
+        data={focusedCategory?.products ?? []}
+        keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl
@@ -563,19 +793,18 @@ export default function AdminScreen() {
                   />
                   <Text style={styles.helperLabel}>Assign to store</Text>
                   <FlatList
-                    data={[{ id: 0, name: 'No store' }, ...stores.map((store) => ({ id: store.id, name: store.name }))]}
+                    data={stores.map((store) => ({ id: store.id, name: store.name }))}
                     horizontal
                     keyExtractor={(item) => item.id.toString()}
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={styles.chipRow}
                     renderItem={({ item }) => {
-                      const isNoStore = item.id === 0;
-                      const active = isNoStore ? !selectedStoreId : selectedStoreId === String(item.id);
+                      const active = selectedStoreId === String(item.id);
 
                       return (
                         <TouchableOpacity
                           style={[styles.chip, active && styles.chipActive]}
-                          onPress={() => setSelectedStoreId(isNoStore ? '' : String(item.id))}
+                          onPress={() => setSelectedStoreId(String(item.id))}
                         >
                           <Text style={[styles.chipText, active && styles.chipTextActive]}>{item.name}</Text>
                         </TouchableOpacity>
@@ -591,6 +820,9 @@ export default function AdminScreen() {
                       {creatingProduct ? 'Creating product...' : 'Create Product'}
                     </Text>
                   </TouchableOpacity>
+                  <Text style={styles.formHint}>
+                    Every product must belong to a store before customers can shop it.
+                  </Text>
                 </View>
               ) : null}
             </View>
@@ -664,150 +896,133 @@ export default function AdminScreen() {
             <View style={styles.catalogHeader}>
               <Text style={styles.catalogTitle}>Catalog by Category</Text>
               <Text style={styles.catalogMeta}>
-                Tap a category to open just those products
+                Start with issues first, then browse categories like a map of the catalog.
               </Text>
+            </View>
+
+            <View style={styles.attentionCard}>
+              <View style={styles.attentionHeader}>
+                <View>
+                  <Text style={styles.attentionTitle}>Needs Attention</Text>
+                  <Text style={styles.attentionSubtitle}>
+                    Surface the products a new manager should probably fix first.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.attentionBadgeRow}>
+                <View style={styles.attentionBadge}>
+                  <Text style={styles.attentionBadgeValue}>{attentionCounts.missingStore}</Text>
+                  <Text style={styles.attentionBadgeLabel}>No store</Text>
+                </View>
+                <View style={styles.attentionBadge}>
+                  <Text style={styles.attentionBadgeValue}>{attentionCounts.uncategorized}</Text>
+                  <Text style={styles.attentionBadgeLabel}>Uncategorized</Text>
+                </View>
+                <View style={styles.attentionBadge}>
+                  <Text style={styles.attentionBadgeValue}>{attentionCounts.lowStock}</Text>
+                  <Text style={styles.attentionBadgeLabel}>Low stock</Text>
+                </View>
+              </View>
+              {needsAttentionProducts.length ? (
+                <View style={styles.attentionList}>
+                  {needsAttentionProducts.slice(0, 4).map(({ product, issues }) => (
+                    <TouchableOpacity
+                      key={`attention-${product.id}`}
+                      style={styles.attentionProductRow}
+                      onPress={() => setFocusedCategoryName(product.category?.name ?? 'Uncategorized')}
+                    >
+                      <View style={styles.attentionProductText}>
+                        <Text style={styles.attentionProductTitle}>{product.name}</Text>
+                        <Text style={styles.attentionProductMeta}>
+                          {(product.category?.name ?? 'Uncategorized')} •{' '}
+                          {stores.find((store) => store.id === product.store_id)?.name || 'Unassigned'}
+                        </Text>
+                      </View>
+                      <View style={styles.attentionIssueWrap}>
+                        {issues.map((issue) => (
+                          <Text key={`${product.id}-${issue}`} style={styles.attentionIssueBadge}>
+                            {issue === 'missing_store'
+                              ? 'No store'
+                              : issue === 'uncategorized'
+                                ? 'No category'
+                                : 'Low stock'}
+                          </Text>
+                        ))}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <Text style={styles.attentionEmptyText}>No urgent catalog issues right now.</Text>
+              )}
+            </View>
+
+            <View style={styles.categoryBrowserCard}>
+              <View style={styles.categoryBrowserHeader}>
+                <Text style={styles.categoryBrowserTitle}>Browse Categories</Text>
+                <Text style={styles.categoryBrowserHint}>Tap a card to manage only that category.</Text>
+              </View>
+              <View style={styles.categoryGrid}>
+                {catalogSections.map((item) => {
+                  const active = focusedCategoryName === item.title;
+
+                  return (
+                    <TouchableOpacity
+                      key={item.key}
+                      style={[styles.categoryGridCard, active && styles.categoryGridCardActive]}
+                      onPress={() => setFocusedCategoryName(active ? null : item.title)}
+                    >
+                      <Text style={styles.categoryGridTitle}>{item.title}</Text>
+                      <Text style={styles.categoryGridMeta}>{item.count} products</Text>
+                      {item.needsAttentionCount ? (
+                        <Text style={styles.categoryGridWarning}>
+                          {item.needsAttentionCount} need attention
+                        </Text>
+                      ) : (
+                        <Text style={styles.categoryGridHint}>Open workspace</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View
+              style={styles.focusCard}
+              onLayout={(event) => setWorkspaceOffsetY(event.nativeEvent.layout.y)}
+            >
+              <View style={styles.focusHeader}>
+                <View>
+                  <Text style={styles.focusTitle}>
+                    {focusedCategory ? focusedCategory.title : 'Category Workspace'}
+                  </Text>
+                  <Text style={styles.focusSubtitle}>
+                    {focusedCategory
+                      ? `Managing ${focusedCategory.count} product${focusedCategory.count === 1 ? '' : 's'} in one focused view.`
+                      : 'Choose a category card above to open a focused product workspace.'}
+                  </Text>
+                </View>
+                {focusedCategory ? (
+                  <TouchableOpacity onPress={() => setFocusedCategoryName(null)}>
+                    <Text style={styles.sectionToggle}>Clear</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             </View>
           </View>
         }
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text>No products yet. Create your first product above.</Text>
-          </View>
-        }
-        renderItem={({ item }) => {
-          if (item.type === 'category') {
-            const expanded = openCatalogCategoryName === item.title;
-            return (
-              <TouchableOpacity
-                style={styles.categoryHeader}
-                onPress={() => setOpenCatalogCategoryName(expanded ? null : item.title)}
-              >
-                <View>
-                  <Text style={styles.categoryHeaderTitle}>{item.title}</Text>
-                  <Text style={styles.categoryHeaderMeta}>{item.count} items</Text>
-                </View>
-                <Text style={styles.sectionToggle}>{expanded ? 'Hide' : 'Open'}</Text>
-              </TouchableOpacity>
-            );
-          }
-
-          const product = item.product;
-
-          return (
-            <View style={styles.productCard}>
-              <Text style={styles.productTitle}>{product.name}</Text>
-              <Text style={styles.productMeta}>Category: {product.category?.name || 'Uncategorized'}</Text>
-              <Text style={styles.productMeta}>
-                Store: {stores.find((store) => store.id === product.store_id)?.name || 'Unassigned'}
-              </Text>
-              <View style={styles.manageGrid}>
-                <View style={styles.manageColumn}>
-                  <Text style={styles.manageLabel}>Price</Text>
-                  <View style={styles.manageRow}>
-                    <TextInput
-                      style={[styles.input, styles.manageInput]}
-                      keyboardType="decimal-pad"
-                      value={priceDrafts[product.id] ?? ''}
-                      onChangeText={(value) =>
-                        setPriceDrafts((currentDrafts) => ({ ...currentDrafts, [product.id]: value }))
-                      }
-                    />
-                    <TouchableOpacity
-                      style={[
-                        styles.secondaryButton,
-                        updatingPriceProductId === product.id && styles.disabledButton,
-                      ]}
-                      onPress={() => updatePrice(product.id)}
-                      disabled={updatingPriceProductId === product.id}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        {updatingPriceProductId === product.id ? 'Saving...' : 'Save'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.manageColumn}>
-                  <Text style={styles.manageLabel}>Stock</Text>
-                  <View style={styles.manageRow}>
-                    <TextInput
-                      style={[styles.input, styles.manageInput]}
-                      keyboardType="number-pad"
-                      value={stockDrafts[product.id] ?? ''}
-                      onChangeText={(value) =>
-                        setStockDrafts((currentDrafts) => ({ ...currentDrafts, [product.id]: value }))
-                      }
-                    />
-                    <TouchableOpacity
-                      style={[
-                        styles.secondaryButton,
-                        updatingProductId === product.id && styles.disabledButton,
-                      ]}
-                      onPress={() => updateStock(product.id)}
-                      disabled={updatingProductId === product.id}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        {updatingProductId === product.id ? 'Saving...' : 'Save'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <View style={styles.manageColumn}>
-                  <Text style={styles.manageLabel}>Image URL</Text>
-                  <View style={styles.manageRow}>
-                    <TextInput
-                      style={[styles.input, styles.manageInput]}
-                      value={imageDrafts[product.id] ?? ''}
-                      onChangeText={(value) =>
-                        setImageDrafts((currentDrafts) => ({ ...currentDrafts, [product.id]: value }))
-                      }
-                      autoCapitalize="none"
-                      placeholder="https://..."
-                    />
-                    <TouchableOpacity
-                      style={[
-                        styles.secondaryButton,
-                        updatingImageProductId === product.id && styles.disabledButton,
-                      ]}
-                      onPress={() => updateImage(product.id)}
-                      disabled={updatingImageProductId === product.id}
-                    >
-                      <Text style={styles.secondaryButtonText}>
-                        {updatingImageProductId === product.id ? 'Saving...' : 'Save'}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {!product.category ? (
-                <View style={styles.assignWrap}>
-                  <Text style={styles.assignLabel}>Assign category</Text>
-                  <FlatList
-                    data={categories}
-                    horizontal
-                    keyExtractor={(category) => `assign-${product.id}-${category.id}`}
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.assignChips}
-                    renderItem={({ item: category }) => (
-                      <TouchableOpacity
-                        style={[
-                          styles.assignChip,
-                          updatingCategoryProductId === product.id && styles.disabledButton,
-                        ]}
-                        onPress={() => assignCategory(product.id, category.id)}
-                        disabled={updatingCategoryProductId === product.id}
-                      >
-                        <Text style={styles.assignChipText}>{category.name}</Text>
-                      </TouchableOpacity>
-                    )}
-                  />
-                </View>
-              ) : null}
+          focusedCategory ? (
+            <View style={styles.emptyContainer}>
+              <Text>No products in this category yet.</Text>
             </View>
-          );
-        }}
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text>Select a category above to manage its products.</Text>
+            </View>
+          )
+        }
+        renderItem={({ item }) => renderProductManagementCard(item)}
       />
     </SafeAreaView>
   );
@@ -917,6 +1132,11 @@ const styles = StyleSheet.create({
     color: '#475569',
     marginBottom: 10,
   },
+  formHint: {
+    marginTop: 10,
+    color: '#64748B',
+    fontSize: 13,
+  },
   chipRow: {
     gap: 10,
     marginBottom: 12,
@@ -1006,6 +1226,238 @@ const styles = StyleSheet.create({
   catalogMeta: {
     color: '#64748B',
   },
+  attentionCard: {
+    backgroundColor: '#FFFDF7',
+    borderRadius: 20,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    gap: 14,
+  },
+  attentionHeader: {
+    gap: 4,
+  },
+  attentionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  attentionSubtitle: {
+    color: '#A16207',
+  },
+  attentionBadgeRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  attentionBadge: {
+    flex: 1,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    padding: 12,
+  },
+  attentionBadgeValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#92400E',
+  },
+  attentionBadgeLabel: {
+    marginTop: 4,
+    color: '#A16207',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  attentionList: {
+    gap: 10,
+  },
+  attentionProductRow: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 14,
+    gap: 10,
+  },
+  attentionProductText: {
+    gap: 4,
+  },
+  attentionProductTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  attentionProductMeta: {
+    color: '#64748B',
+  },
+  attentionIssueWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  attentionIssueBadge: {
+    backgroundColor: '#FEF3C7',
+    color: '#92400E',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  attentionEmptyText: {
+    color: '#A16207',
+    fontWeight: '600',
+  },
+  categoryBrowserCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 18,
+    gap: 14,
+  },
+  categoryBrowserHeader: {
+    gap: 4,
+  },
+  categoryBrowserTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  categoryBrowserHint: {
+    color: '#64748B',
+  },
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  categoryGridCard: {
+    width: '48%',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    minHeight: 112,
+  },
+  categoryGridCardActive: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#60A5FA',
+  },
+  categoryGridTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  categoryGridMeta: {
+    marginTop: 8,
+    color: '#475569',
+    fontWeight: '600',
+  },
+  categoryGridWarning: {
+    marginTop: 10,
+    color: '#C2410C',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  categoryGridHint: {
+    marginTop: 10,
+    color: '#2563EB',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  focusCard: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 20,
+    padding: 18,
+  },
+  focusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  focusTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#1E3A8A',
+  },
+  focusSubtitle: {
+    marginTop: 4,
+    color: '#475569',
+  },
+  catalogDropdownCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    marginHorizontal: 20,
+    marginBottom: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#DCE7F5',
+  },
+  catalogDropdownHeader: {
+    padding: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#F8FBFF',
+  },
+  catalogDropdownHeaderText: {
+    flex: 1,
+  },
+  catalogEyebrow: {
+    color: '#64748B',
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  catalogBadgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  catalogSummaryBadge: {
+    backgroundColor: '#E0F2FE',
+    color: '#075985',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  catalogWarningBadge: {
+    backgroundColor: '#FEF3C7',
+    color: '#92400E',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  catalogChevronWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 56,
+  },
+  catalogChevron: {
+    fontSize: 22,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: '#2563EB',
+  },
+  catalogChevronLabel: {
+    marginTop: 2,
+    color: '#2563EB',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  catalogDropdownBody: {
+    borderTopWidth: 1,
+    borderTopColor: '#DCE7F5',
+    backgroundColor: '#EEF4FB',
+    paddingTop: 12,
+    paddingBottom: 4,
+  },
   categoryHeader: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1033,6 +1485,20 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     marginBottom: 12,
   },
+  nestedProductCard: {
+    marginHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
+  },
+  unassignedProductCard: {
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
   productTitle: {
     fontSize: 16,
     fontWeight: '700',
@@ -1055,6 +1521,17 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontWeight: '700',
     color: '#334155',
+  },
+  warningBanner: {
+    marginTop: 12,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  warningBannerText: {
+    color: '#92400E',
+    fontWeight: '700',
   },
   assignWrap: {
     marginTop: 12,

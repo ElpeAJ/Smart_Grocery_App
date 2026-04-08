@@ -27,6 +27,19 @@ const PERIOD_OPTIONS: { value: ReportPeriod; label: string }[] = [
   { value: 'year', label: 'Annual' },
 ];
 
+function formatScopeLabel(scope: ReportSummary['scope']) {
+  switch (scope) {
+    case 'system':
+      return 'System view';
+    case 'staff':
+      return 'Picker view';
+    case 'driver':
+      return 'Driver view';
+    default:
+      return 'Report view';
+  }
+}
+
 export default function ReportsScreen() {
   const { user } = useAuth();
   const role = user?.role;
@@ -75,6 +88,9 @@ export default function ReportsScreen() {
         ? 'Completed orders you helped pick.'
         : 'Completed deliveries assigned to you.';
 
+  const averageOrderValue =
+    report.completed_orders > 0 ? report.total_revenue / report.completed_orders : 0;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
@@ -92,8 +108,12 @@ export default function ReportsScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
-            <Text style={styles.title}>{heading}</Text>
-            <Text style={styles.subtitle}>{subtitle}</Text>
+            <View style={styles.heroCard}>
+              <Text style={styles.eyebrow}>Performance</Text>
+              <Text style={styles.title}>{heading}</Text>
+              <Text style={styles.subtitle}>{subtitle}</Text>
+              <Text style={styles.scopeBadge}>{formatScopeLabel(report.scope)}</Text>
+            </View>
 
             <FlatList
               data={PERIOD_OPTIONS}
@@ -125,6 +145,15 @@ export default function ReportsScreen() {
                 <Text style={styles.metricValue}>{formatCedi(report.total_revenue)}</Text>
                 <Text style={styles.metricLabel}>Revenue</Text>
               </View>
+              <View style={styles.metricCard}>
+                <Text style={styles.metricValue}>{formatCedi(averageOrderValue)}</Text>
+                <Text style={styles.metricLabel}>Avg. Order</Text>
+              </View>
+            </View>
+
+            <View style={styles.sectionIntro}>
+              <Text style={styles.sectionTitle}>Completed activity</Text>
+              <Text style={styles.sectionHint}>A clean record of work finished during this period.</Text>
             </View>
           </View>
         }
@@ -136,10 +165,13 @@ export default function ReportsScreen() {
         }
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Order #{item.order_id}</Text>
-            <Text style={styles.metaText}>
-              Customer: {item.customer_name || `Customer #${item.customer_id}`}
-            </Text>
+            <View style={styles.cardTopRow}>
+              <View>
+                <Text style={styles.cardTitle}>Order #{item.order_id}</Text>
+                <Text style={styles.cardSubtitle}>{item.customer_name || `Customer #${item.customer_id}`}</Text>
+              </View>
+              <Text style={styles.amountPill}>{formatCedi(item.total_amount)}</Text>
+            </View>
             <Text style={styles.metaText}>
               Store: {item.store_name || (item.store_id ? `Store #${item.store_id}` : 'Unassigned')}
             </Text>
@@ -149,7 +181,6 @@ export default function ReportsScreen() {
             <Text style={styles.metaText}>
               Completed: {new Date(item.completed_at).toLocaleString()}
             </Text>
-            <Text style={styles.amountText}>{formatCedi(item.total_amount)}</Text>
           </View>
         )}
       />
@@ -171,14 +202,40 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingTop: 20,
   },
+  heroCard: {
+    backgroundColor: '#0F5A35',
+    borderRadius: 28,
+    padding: 22,
+  },
+  eyebrow: {
+    color: '#C7F9CC',
+    textTransform: 'uppercase',
+    letterSpacing: 1.1,
+    fontSize: 12,
+    fontWeight: '700',
+  },
   title: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginTop: 10,
   },
   subtitle: {
     fontSize: 15,
-    color: '#475569',
+    color: '#E7FBE8',
+    marginTop: 8,
+    lineHeight: 21,
+  },
+  scopeBadge: {
+    alignSelf: 'flex-start',
+    marginTop: 14,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    color: '#FFFFFF',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontWeight: '700',
   },
   periodRow: {
     gap: 10,
@@ -206,41 +263,71 @@ const styles = StyleSheet.create({
   metricCard: {
     flex: 1,
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 16,
   },
   metricValue: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 21,
+    fontWeight: '800',
     color: '#1E3A8A',
   },
   metricLabel: {
     marginTop: 6,
     color: '#64748B',
   },
+  sectionIntro: {
+    gap: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  sectionHint: {
+    color: '#64748B',
+  },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 22,
+    padding: 18,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 1,
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    alignItems: 'flex-start',
   },
   cardTitle: {
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#166534',
+  },
+  cardSubtitle: {
+    marginTop: 6,
+    color: '#475569',
+    fontWeight: '600',
   },
   metaText: {
     marginTop: 6,
     color: '#475569',
   },
-  amountText: {
-    marginTop: 12,
-    fontSize: 18,
+  amountPill: {
+    backgroundColor: '#DCFCE7',
+    color: '#166534',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    overflow: 'hidden',
     fontWeight: '700',
-    color: '#16A34A',
   },
   emptyCard: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 22,
     padding: 20,
     alignItems: 'center',
   },

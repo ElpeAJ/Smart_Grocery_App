@@ -119,7 +119,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
         await persistSession(token);
       } catch (error) {
-        console.error('Error checking auth state:', error);
+        const axiosError = error as AxiosError<any>;
+        const statusCode = axiosError.response?.status;
+        const isExpectedSessionFailure =
+          statusCode === 401 || statusCode === 403 || axiosError.message === 'Network Error';
+
+        if (!isExpectedSessionFailure) {
+          console.error('Unexpected auth bootstrap error:', error);
+        }
         await clearSession();
       } finally {
         setLoading(false);

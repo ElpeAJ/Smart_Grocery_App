@@ -152,6 +152,13 @@ export default function ProfileScreen() {
 
             <TouchableOpacity
               style={styles.secondaryButton}
+              onPress={() => router.push('/help')}
+            >
+              <Text style={styles.secondaryText}>Help & Support</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.secondaryButton}
               onPress={() =>
                 Alert.alert(
                   'Current setup',

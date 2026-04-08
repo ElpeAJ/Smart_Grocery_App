@@ -20,6 +20,7 @@ class User(Base):
     picked_item_records = relationship("OrderItemPickRecord", back_populates="picker")
     completed_order_records = relationship("OrderCompletionRecord", back_populates="driver")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
+    chat_messages = relationship("OrderChatMessage", back_populates="sender", cascade="all, delete-orphan")
 
 
 class Store(Base):
@@ -77,7 +78,8 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     store_id = Column(Integer, ForeignKey("stores.id"), nullable=True)
-    status = Column(String, default="pending")  # pending, accepted, picking, out_for_delivery, delivered, cancelled
+    status = Column(String, default="pending")  # pending, accepted, picking, awaiting_review, out_for_delivery, delivered, cancelled
+    delivery_window_label = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="orders")
@@ -86,6 +88,12 @@ class Order(Base):
     delivery = relationship("Delivery", back_populates="order", uselist=False)
     completion_record = relationship(
         "OrderCompletionRecord",
+        back_populates="order",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+    chat_thread = relationship(
+        "OrderChatThread",
         back_populates="order",
         uselist=False,
         cascade="all, delete-orphan",
@@ -144,6 +152,10 @@ class Delivery(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), unique=True)
     driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     delivery_address = Column(String, nullable=False)
+    delivery_window_key = Column(String, nullable=True)
+    delivery_window_label = Column(String, nullable=True)
+    delivery_window_start = Column(DateTime, nullable=True)
+    delivery_window_end = Column(DateTime, nullable=True)
     status = Column(String, default="assigned")  # assigned, on_the_way, delivered
 
     order = relationship("Order", back_populates="delivery")
@@ -279,3 +291,44 @@ class Notification(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     user = relationship("User", back_populates="notifications")
+
+
+class OrderChatThread(Base):
+    __tablename__ = "order_chat_threads"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
+    is_open = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    order = relationship("Order", back_populates="chat_thread")
+    messages = relationship(
+        "OrderChatMessage",
+        back_populates="thread",
+        cascade="all, delete-orphan",
+        order_by="OrderChatMessage.created_at.asc()",
+    )
+
+
+class OrderChatMessage(Base):
+    __tablename__ = "order_chat_messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    thread_id = Column(Integer, ForeignKey("order_chat_threads.id"), nullable=False)
+    sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    message = Column(String, nullable=False)
+    message_type = Column(String, default="text", nullable=False)
+    is_read = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    thread = relationship("OrderChatThread", back_populates="messages")
+    sender = relationship("User", back_populates="chat_messages")
+
+    @property
+    def sender_name(self):
+        return self.sender.full_name if self.sender else None
+
+    @property
+    def sender_role(self):
+        return self.sender.role if self.sender else None

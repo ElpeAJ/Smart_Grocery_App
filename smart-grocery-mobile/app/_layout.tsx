@@ -14,6 +14,8 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" />
           <Stack.Screen name="product/[id]" />
           <Stack.Screen name="checkout" />
+          <Stack.Screen name="help" />
+          <Stack.Screen name="order-chat/[orderId]" />
         </Stack>
       </AuthProvider>
     </SafeAreaProvider>

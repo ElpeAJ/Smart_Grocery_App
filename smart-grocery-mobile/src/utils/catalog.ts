@@ -34,6 +34,91 @@ const CATEGORY_THEME_MAP: Record<
   'Pantry Essentials': { emoji: '🛍️', backgroundColor: '#F8FAFC', accentColor: '#475569', textColor: '#1E293B' },
 };
 
+const PRODUCT_EMOJI_RULES: { keywords: string[]; emoji: string }[] = [
+  { keywords: ['banana', 'plantain'], emoji: '🍌' },
+  { keywords: ['avocado'], emoji: '🥑' },
+  { keywords: ['orange', 'tangerine'], emoji: '🍊' },
+  { keywords: ['mango'], emoji: '🥭' },
+  { keywords: ['pineapple'], emoji: '🍍' },
+  { keywords: ['watermelon'], emoji: '🍉' },
+  { keywords: ['papaya'], emoji: '🍈' },
+  { keywords: ['apple'], emoji: '🍎' },
+  { keywords: ['grapes'], emoji: '🍇' },
+  { keywords: ['strawberr'], emoji: '🍓' },
+  { keywords: ['lemon', 'lime'], emoji: '🍋' },
+  { keywords: ['coconut'], emoji: '🥥' },
+  { keywords: ['pear'], emoji: '🍐' },
+  { keywords: ['guava'], emoji: '🍏' },
+  { keywords: ['tomato'], emoji: '🍅' },
+  { keywords: ['onion'], emoji: '🧅' },
+  { keywords: ['pepper', 'chili'], emoji: '🌶️' },
+  { keywords: ['okra'], emoji: '🥬' },
+  { keywords: ['cabbage', 'lettuce', 'kontomire', 'broccoli'], emoji: '🥬' },
+  { keywords: ['carrot'], emoji: '🥕' },
+  { keywords: ['cucumber'], emoji: '🥒' },
+  { keywords: ['yam', 'cassava', 'potato', 'cocoyam'], emoji: '🥔' },
+  { keywords: ['ginger'], emoji: '🫚' },
+  { keywords: ['turmeric'], emoji: '🟠' },
+  { keywords: ['rice'], emoji: '🍚' },
+  { keywords: ['spaghetti', 'pasta', 'noodles', 'macaroni', 'penne', 'fusilli', 'lasagna'], emoji: '🍝' },
+  { keywords: ['beans', 'lentils', 'peas', 'chickpeas'], emoji: '🫘' },
+  { keywords: ['flour'], emoji: '🌾' },
+  { keywords: ['cake', 'cupcake'], emoji: '🧁' },
+  { keywords: ['bread', 'baguette', 'croissant'], emoji: '🍞' },
+  { keywords: ['milk', 'yoghurt', 'cream'], emoji: '🥛' },
+  { keywords: ['egg'], emoji: '🥚' },
+  { keywords: ['cheese'], emoji: '🧀' },
+  { keywords: ['butter', 'margarine'], emoji: '🧈' },
+  { keywords: ['chicken', 'turkey'], emoji: '🍗' },
+  { keywords: ['beef', 'goat', 'mutton', 'pork', 'liver'], emoji: '🥩' },
+  { keywords: ['fish', 'tilapia', 'salmon', 'mackerel', 'sardines', 'tuna', 'shrimp', 'prawn', 'crab'], emoji: '🐟' },
+  { keywords: ['ice cream'], emoji: '🍨' },
+  { keywords: ['pizza'], emoji: '🍕' },
+  { keywords: ['fries'], emoji: '🍟' },
+  { keywords: ['sausage', 'nuggets', 'burger'], emoji: '🍔' },
+  { keywords: ['biscuit', 'cookies', 'cracker', 'shortbread'], emoji: '🍪' },
+  { keywords: ['chips', 'chin chin', 'popcorn', 'pretzel'], emoji: '🥨' },
+  { keywords: ['chocolate'], emoji: '🍫' },
+  { keywords: ['candy', 'toffee', 'mint', 'lollipop', 'gum', 'gummy', 'marshmallow'], emoji: '🍬' },
+  { keywords: ['malt', 'drink', 'soda', 'cola', 'juice', 'water', 'tea', 'coffee', 'milo', 'cocoa'], emoji: '🥤' },
+  { keywords: ['oil'], emoji: '🫒' },
+  { keywords: ['salt', 'sugar', 'honey', 'vinegar', 'ketchup', 'mayonnaise', 'jam'], emoji: '🧂' },
+  { keywords: ['cereal', 'corn flakes', 'granola', 'oats', 'custard'], emoji: '🥣' },
+  { keywords: ['cerelac', 'baby cereal'], emoji: '🥣' },
+  { keywords: ['formula'], emoji: '🍼' },
+  { keywords: ['diapers', 'diaper'], emoji: '🧷' },
+  { keywords: ['wipes'], emoji: '🫧' },
+  { keywords: ['lotion', 'powder', 'bath wash'], emoji: '🧴' },
+  { keywords: ['bottle', 'feeding bottle'], emoji: '🍼' },
+  { keywords: ['bib'], emoji: '🪁' },
+  { keywords: ['puree'], emoji: '🍎' },
+  { keywords: ['baby'], emoji: '👶' },
+  { keywords: ['soap', 'detergent', 'cleaner', 'bleach', 'freshener'], emoji: '🧽' },
+  { keywords: ['toilet roll', 'tissue', 'paper', 'serviettes'], emoji: '🧻' },
+  { keywords: ['shampoo', 'conditioner', 'pomade', 'hair', 'spray'], emoji: '💇' },
+  { keywords: ['toothpaste', 'toothbrush', 'deodorant', 'lotion', 'shaving'], emoji: '🧴' },
+  { keywords: ['vitamin', 'thermometer', 'sanitizer', 'mask', 'balm', 'glucose'], emoji: '💊' },
+];
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function shiftHex(hex: string, amount: number) {
+  const normalized = hex.replace('#', '');
+  const value = Number.parseInt(normalized, 16);
+  const red = clamp((value >> 16) + amount, 0, 255);
+  const green = clamp(((value >> 8) & 0xff) + amount, 0, 255);
+  const blue = clamp((value & 0xff) + amount, 0, 255);
+  return `#${[red, green, blue]
+    .map((channel) => channel.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function hashText(value: string) {
+  return [...value].reduce((total, char) => total * 31 + char.charCodeAt(0), 7);
+}
+
 export function getCategoryTheme(categoryName?: string | null) {
   if (!categoryName) {
     return { emoji: '🛒', backgroundColor: '#E2E8F0', accentColor: '#2563EB', textColor: '#1E293B' };
@@ -47,4 +132,30 @@ export function getCategoryTheme(categoryName?: string | null) {
       textColor: '#1E293B',
     }
   );
+}
+
+function getProductEmoji(productName: string, categoryEmoji: string) {
+  const lowerName = productName.toLowerCase();
+  const match = PRODUCT_EMOJI_RULES.find((rule) =>
+    rule.keywords.some((keyword) => lowerName.includes(keyword))
+  );
+  return match?.emoji ?? categoryEmoji;
+}
+
+export function getProductTheme(categoryName?: string | null, productName?: string | null) {
+  const baseTheme = getCategoryTheme(categoryName);
+
+  if (!productName?.trim()) {
+    return baseTheme;
+  }
+
+  const hash = hashText(productName.trim());
+  const variation = [-12, -4, 8, 14][Math.abs(hash) % 4];
+
+  return {
+    emoji: getProductEmoji(productName, baseTheme.emoji),
+    backgroundColor: shiftHex(baseTheme.backgroundColor, variation),
+    accentColor: shiftHex(baseTheme.accentColor, variation > 0 ? -10 : 10),
+    textColor: baseTheme.textColor,
+  };
 }

@@ -99,7 +99,7 @@ def get_my_orders(
 @router.get("/", response_model=list[schemas.OrderResponse])
 def get_all_orders(
     store_id: Optional[int] = Query(default=None),
-    status: Optional[Literal["pending", "accepted", "picking", "out_for_delivery", "delivered", "cancelled"]] = Query(default=None),
+    status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = Query(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "manager", "staff"))
 ):
@@ -117,7 +117,7 @@ def get_all_orders(
 @router.put("/{order_id}/status")
 def update_order_status(
     order_id: int,
-    status: Literal["pending", "accepted", "picking", "out_for_delivery", "delivered", "cancelled"],
+    status: Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"],
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "manager", "staff"))
 ):
@@ -126,11 +126,44 @@ def update_order_status(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    if status == "awaiting_review":
+        if not order.all_items_picked:
+            raise HTTPException(
+                status_code=400,
+                detail="All items must be picked before the order can be submitted for review",
+            )
+        order.status = "awaiting_review"
+        create_notifications_for_roles(
+            db,
+            roles=("admin", "manager"),
+            title="Order awaiting review",
+            message=f"Order #{order.id} has been fully picked and is awaiting delivery approval.",
+            kind="operations",
+        )
+        db.commit()
+        db.refresh(order)
+        return {
+            "message": "Order submitted for manager review",
+            "order_id": order.id,
+            "status": order.status,
+        }
+
     if status == "out_for_delivery" and not order.all_items_picked:
         raise HTTPException(
             status_code=400,
             detail="All items must be picked before the order can go out for delivery",
         )
+    if status == "out_for_delivery":
+        if current_user.role not in {"admin", "manager"}:
+            raise HTTPException(
+                status_code=403,
+                detail="Only managers or admins can release orders to delivery",
+            )
+        if order.status != "awaiting_review":
+            raise HTTPException(
+                status_code=400,
+                detail="Orders must be reviewed before delivery release",
+            )
 
     order.status = status
     if status == "out_for_delivery":
@@ -196,14 +229,13 @@ def update_order_item_pick_status(
             kind="order",
         )
 
-    if order.all_items_picked:
-        create_notifications_for_roles(
-            db,
-            roles=("admin", "manager"),
-            title="Order ready for delivery",
-            message=f"Order #{order.id} has been fully picked and is ready for delivery handoff.",
-            kind="operations",
-        )
+    picked_items_count = sum(1 for item in order.items if item.is_picked)
+
+    if 0 < picked_items_count < len(order.items):
+        order.status = "picking"
+
+    if not payload.picked and order.status == "awaiting_review":
+        order.status = "picking"
 
     db.commit()
     db.refresh(order)

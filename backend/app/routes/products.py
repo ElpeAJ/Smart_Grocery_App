@@ -17,10 +17,12 @@ def create_product(
     db: Session = Depends(get_db),
     current_user=Depends(require_roles("admin", "manager"))
 ):
-    if product.store_id:
-        store = db.query(models.Store).filter(models.Store.id == product.store_id).first()
-        if not store:
-            raise HTTPException(status_code=404, detail="Store not found")
+    if product.store_id is None:
+        raise HTTPException(status_code=400, detail="Products must be assigned to a store")
+
+    store = db.query(models.Store).filter(models.Store.id == product.store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
 
     category = None
     if product.category_id is not None:
@@ -158,6 +160,27 @@ def update_product_price(
         raise HTTPException(status_code=404, detail="Product not found")
 
     product.price = payload.price
+    db.commit()
+    db.refresh(product)
+    return product
+
+
+@router.put("/{product_id}/store", response_model=schemas.ProductResponse)
+def update_product_store(
+    product_id: int,
+    payload: schemas.ProductStoreUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles("admin", "manager"))
+):
+    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Store not found")
+
+    product.store_id = store.id
     db.commit()
     db.refresh(product)
     return product
