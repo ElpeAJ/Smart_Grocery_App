@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../src/context/AuthContext';
 import { BASE_URL } from '../src/config';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../src/utils/haptics';
 
 export default function RegisterScreen() {
   const [fullName, setFullName] = useState('');
@@ -24,6 +25,7 @@ export default function RegisterScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setSubmitting(true);
     const result = await register({ fullName, email, password });
     setSubmitting(false);
@@ -33,6 +35,7 @@ export default function RegisterScreen() {
       return;
     }
 
+    await triggerSuccessHaptic();
     Alert.alert('Account created', 'You can log in with your new account now.');
     router.replace('/login');
   };
@@ -75,7 +78,12 @@ export default function RegisterScreen() {
         <Text style={styles.buttonText}>{submitting ? 'Creating account...' : 'Register'}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => router.push('/login')}>
+      <TouchableOpacity
+        onPress={async () => {
+          await triggerLightHaptic();
+          router.push('/login');
+        }}
+      >
         <Text style={styles.link}>Already have an account? Login</Text>
       </TouchableOpacity>
     </SafeAreaView>

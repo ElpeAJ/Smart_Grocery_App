@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Redirect } from 'expo-router';
+import { Redirect, useFocusEffect } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -16,6 +16,7 @@ import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
 import type { AppUser, Product, ProductCategory, Store } from '../../src/types/api';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { canManageCatalog, getHomeRouteForRole } from '../../src/utils/roles';
 
 const ROLE_OPTIONS: AppUser['role'][] = ['customer', 'staff', 'manager', 'driver', 'admin'];
@@ -190,6 +191,14 @@ export default function AdminScreen() {
     loadCatalog();
   }, [loadCatalog]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (!loading) {
+        loadCatalog();
+      }
+    }, [loadCatalog, loading])
+  );
+
   useEffect(() => {
     if (!focusedCategoryName || workspaceOffsetY === null) {
       return;
@@ -216,6 +225,7 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setCreatingStore(true);
     try {
       await api.post('/stores/', {
@@ -225,6 +235,7 @@ export default function AdminScreen() {
       setStoreName('');
       setStoreLocation('');
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Store created', 'Your new store is ready for products.');
     } catch (error: any) {
       Alert.alert('Could not create store', error.response?.data?.detail || 'Please try again.');
@@ -239,11 +250,13 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setCreatingCategory(true);
     try {
       await api.post('/categories/', { name: categoryName.trim() });
       setCategoryName('');
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Category created', 'The new category is now ready to use.');
     } catch (error: any) {
       Alert.alert('Could not create category', error.response?.data?.detail || 'Please try again.');
@@ -260,10 +273,12 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setUpdatingCategoryNameId(categoryId);
     try {
       await api.put(`/categories/${categoryId}`, { name: nextName });
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Category updated', 'The category name has been updated.');
     } catch (error: any) {
       Alert.alert('Could not update category', error.response?.data?.detail || 'Please try again.');
@@ -301,6 +316,7 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setCreatingProduct(true);
     try {
       await api.post('/products/', {
@@ -320,6 +336,7 @@ export default function AdminScreen() {
       setSelectedStoreId('');
       setSelectedCategoryId('');
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Product created', 'The new product is now available in the catalog.');
     } catch (error: any) {
       Alert.alert('Could not create product', error.response?.data?.detail || 'Please try again.');
@@ -336,12 +353,14 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setUpdatingProductId(productId);
     try {
       await api.put(`/inventory/${productId}/stock`, null, {
         params: { stock_quantity: nextStock },
       });
       await loadCatalog();
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not update stock', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -357,10 +376,12 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setUpdatingPriceProductId(productId);
     try {
       await api.put(`/products/${productId}/price`, { price: nextPrice });
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Price updated', 'The product price has been updated.');
     } catch (error: any) {
       Alert.alert('Could not update price', error.response?.data?.detail || 'Please try again.');
@@ -370,12 +391,14 @@ export default function AdminScreen() {
   };
 
   const updateImage = async (productId: number) => {
+    await triggerLightHaptic();
     setUpdatingImageProductId(productId);
     try {
       await api.put(`/products/${productId}/image`, {
         image_url: imageDrafts[productId]?.trim() || null,
       });
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Image updated', 'The product image has been updated.');
     } catch (error: any) {
       Alert.alert('Could not update image', error.response?.data?.detail || 'Please try again.');
@@ -392,10 +415,12 @@ export default function AdminScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setUpdatingStoreProductId(productId);
     try {
       await api.put(`/products/${productId}/store`, { store_id: nextStoreId });
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Store assigned', 'The product is now linked to a store.');
     } catch (error: any) {
       Alert.alert('Could not assign store', error.response?.data?.detail || 'Please try again.');
@@ -405,10 +430,12 @@ export default function AdminScreen() {
   };
 
   const assignCategory = async (productId: number, categoryId: number) => {
+    await triggerLightHaptic();
     setUpdatingCategoryProductId(productId);
     try {
       await api.put(`/products/${productId}/category`, { category_id: categoryId });
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Category assigned', 'The product has been categorized.');
     } catch (error: any) {
       Alert.alert('Could not assign category', error.response?.data?.detail || 'Please try again.');
@@ -418,10 +445,12 @@ export default function AdminScreen() {
   };
 
   const updateUserRole = async (userId: number, nextRole: AppUser['role']) => {
+    await triggerLightHaptic();
     setUpdatingUserId(userId);
     try {
       await api.put(`/users/${userId}/role`, { role: nextRole });
       await loadCatalog();
+      await triggerSuccessHaptic();
       Alert.alert('Role updated', 'The user role has been updated.');
     } catch (error: any) {
       Alert.alert('Could not update role', error.response?.data?.detail || 'Please try again.');

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Redirect, router } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Redirect, router, useFocusEffect } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -27,7 +27,7 @@ export default function CartScreen() {
   const { user } = useAuth();
   const role = user?.role;
 
-  const fetchCart = async () => {
+  const fetchCart = useCallback(async () => {
     try {
       const response = await api.get<Cart>('/cart/');
       setCart(response.data);
@@ -37,11 +37,13 @@ export default function CartScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    fetchCart();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchCart();
+    }, [fetchCart])
+  );
 
   const updateQuantity = async (itemId: number, quantity: number) => {
     setUpdatingItemId(itemId);

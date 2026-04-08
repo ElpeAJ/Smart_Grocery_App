@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Redirect, router } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Redirect, router, useFocusEffect } from 'expo-router';
 import { Alert, FlatList, RefreshControl, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -49,7 +49,7 @@ export default function OrdersScreen() {
     }
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = useCallback(async () => {
     try {
       const [ordersResult, chatResult] = await Promise.allSettled([
         api.get<Order[]>('/orders/my-orders'),
@@ -75,39 +75,13 @@ export default function OrdersScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    const loadOrders = async () => {
-      try {
-        const [ordersResult, chatResult] = await Promise.allSettled([
-          api.get<Order[]>('/orders/my-orders'),
-          api.get<OrderChatSummary[]>('/order-chats/summary'),
-        ]);
-        if (ordersResult.status !== 'fulfilled') {
-          throw ordersResult.reason;
-        }
-
-        const ordersResponse = ordersResult.value;
-        const chatResponse = chatResult.status === 'fulfilled' ? chatResult.value : null;
-        const sortedOrders = [...ordersResponse.data].sort(
-          (firstOrder, secondOrder) =>
-            new Date(secondOrder.created_at).getTime() - new Date(firstOrder.created_at).getTime()
-        );
-        setOrders(sortedOrders);
-        setChatSummaries(
-          Object.fromEntries((chatResponse?.data ?? []).map((summary) => [summary.order_id, summary]))
-        );
-      } catch (error: any) {
-        Alert.alert('Could not load orders', error.response?.data?.detail || 'Please try again.');
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
-      }
-    };
-
-    loadOrders();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      fetchOrders();
+    }, [fetchOrders])
+  );
 
   if (loading) {
     return <LoadingScreen label="Loading orders..." />;

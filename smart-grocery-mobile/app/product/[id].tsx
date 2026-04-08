@@ -16,6 +16,7 @@ import ProductArtwork from '../../src/components/ProductArtwork';
 import { useAuth } from '../../src/context/AuthContext';
 import type { Product } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../../src/utils/roles';
 
 export default function ProductDetailsScreen() {
@@ -54,11 +55,13 @@ export default function ProductDetailsScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setAdding(true);
 
     try {
       await api.post('/cart/items', { product_id: product.id, quantity });
 
+      await triggerSuccessHaptic();
       Alert.alert('Added to cart', `${product.name} was added to your cart.`);
     } catch (error: any) {
       Alert.alert('Could not add item', error.response?.data?.detail || 'Please try again.');
@@ -80,7 +83,13 @@ export default function ProductDetailsScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={async () => {
+            await triggerLightHaptic();
+            router.back();
+          }}
+          style={styles.backButton}
+        >
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
 
@@ -109,14 +118,20 @@ export default function ProductDetailsScreen() {
             <View style={styles.quantityRow}>
               <TouchableOpacity
                 style={styles.quantityButton}
-                onPress={() => setQuantity((current) => Math.max(1, current - 1))}
+                onPress={async () => {
+                  await triggerLightHaptic();
+                  setQuantity((current) => Math.max(1, current - 1));
+                }}
               >
                 <Text style={styles.quantityButtonText}>-</Text>
               </TouchableOpacity>
               <Text style={styles.quantityValue}>{quantity}</Text>
               <TouchableOpacity
                 style={styles.quantityButton}
-                onPress={() => setQuantity((current) => Math.min(product.stock_quantity, current + 1))}
+                onPress={async () => {
+                  await triggerLightHaptic();
+                  setQuantity((current) => Math.min(product.stock_quantity, current + 1));
+                }}
               >
                 <Text style={styles.quantityButtonText}>+</Text>
               </TouchableOpacity>

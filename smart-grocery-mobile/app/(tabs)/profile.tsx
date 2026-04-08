@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import api from '../../src/api/client';
@@ -17,26 +17,28 @@ export default function ProfileScreen() {
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
 
-  useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        const [storesResponse, profileResponse] = await Promise.all([
-          api.get<Store[]>('/stores/'),
-          api.get<UserProfile>('/profile/me'),
-        ]);
+  const loadProfile = useCallback(async () => {
+    try {
+      const [storesResponse, profileResponse] = await Promise.all([
+        api.get<Store[]>('/stores/'),
+        api.get<UserProfile>('/profile/me'),
+      ]);
 
-        setStores(storesResponse.data);
-        setProfile(profileResponse.data);
-        setPhoneNumber(profileResponse.data.phone_number ?? '');
-        setDeliveryAddress(profileResponse.data.delivery_address ?? '');
-        setSelectedStoreId(profileResponse.data.preferred_store_id ?? null);
-      } catch (error: any) {
-        Alert.alert('Could not load profile', error.response?.data?.detail || 'Please try again.');
-      }
-    };
-
-    loadProfile();
+      setStores(storesResponse.data);
+      setProfile(profileResponse.data);
+      setPhoneNumber(profileResponse.data.phone_number ?? '');
+      setDeliveryAddress(profileResponse.data.delivery_address ?? '');
+      setSelectedStoreId(profileResponse.data.preferred_store_id ?? null);
+    } catch (error: any) {
+      Alert.alert('Could not load profile', error.response?.data?.detail || 'Please try again.');
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
 
   const handleLogout = async () => {
     await logout();

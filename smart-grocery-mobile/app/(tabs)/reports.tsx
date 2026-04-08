@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Redirect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Redirect, useFocusEffect } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -62,9 +62,11 @@ export default function ReportsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadReport(period);
-  }, [loadReport, period]);
+  useFocusEffect(
+    useCallback(() => {
+      loadReport(period);
+    }, [loadReport, period])
+  );
 
   if (!canViewReports(role)) {
     return <Redirect href={getHomeRouteForRole(role)} />;

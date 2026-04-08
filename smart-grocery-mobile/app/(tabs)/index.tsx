@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Redirect, router } from 'expo-router';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Redirect, router, useFocusEffect } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -21,6 +21,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import type { Product, ProductCategory, Store, UserProfile } from '../../src/types/api';
 import { getCategoryTheme } from '../../src/utils/catalog';
 import { formatCedi } from '../../src/utils/currency';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../../src/utils/roles';
 
 type ShopListItem =
@@ -82,7 +83,10 @@ function ProductCard({
           <View style={styles.quantityControls}>
             <TouchableOpacity
               style={styles.quantityButton}
-              onPress={() => onChangeDesiredQuantity(item, -1)}
+              onPress={async () => {
+                await triggerLightHaptic();
+                onChangeDesiredQuantity(item, -1);
+              }}
               disabled={desiredQuantity <= 1}
             >
               <Text style={styles.quantityButtonText}>-</Text>
@@ -90,13 +94,21 @@ function ProductCard({
             <Text style={styles.quantityValue}>{desiredQuantity}</Text>
             <TouchableOpacity
               style={styles.quantityButton}
-              onPress={() => onChangeDesiredQuantity(item, 1)}
+              onPress={async () => {
+                await triggerLightHaptic();
+                onChangeDesiredQuantity(item, 1);
+              }}
               disabled={desiredQuantity >= item.stock_quantity}
             >
               <Text style={styles.quantityButtonText}>+</Text>
             </TouchableOpacity>
           </View>
-          <Pressable onPress={() => router.push(`/product/${item.id}`)}>
+          <Pressable
+            onPress={async () => {
+              await triggerLightHaptic();
+              router.push(`/product/${item.id}`);
+            }}
+          >
             <Text style={styles.detailsLink}>View details</Text>
           </Pressable>
         </View>
@@ -136,7 +148,7 @@ export default function ShopScreen() {
       jumpToResults: true,
     });
 
-  const fetchShopData = async (
+  const fetchShopData = useCallback(async (
     storeId = selectedStoreId,
     categoryId = selectedCategoryId,
     search = searchTerm,
@@ -176,7 +188,11 @@ export default function ShopScreen() {
 
       if (options?.jumpToResults) {
         requestAnimationFrame(() => {
-          const productsHeaderRowIndex = listItems.findIndex((item) => item.type === 'products-header');
+          const productsHeaderRowIndex = search.trim()
+            ? 1
+            : categoryId === null
+              ? 3
+              : 2;
 
           if (productsHeaderRowIndex >= 0) {
             flatListRef.current?.scrollToIndex({
@@ -199,12 +215,20 @@ export default function ShopScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [productsSectionOffset, searchTerm, selectedCategoryId, selectedStoreId]);
 
   useEffect(() => {
     fetchShopData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!loading) {
+        fetchShopData(selectedStoreId, selectedCategoryId, searchTerm);
+      }
+    }, [fetchShopData, loading, searchTerm, selectedCategoryId, selectedStoreId])
+  );
 
   useEffect(() => {
     if (!loading) {
@@ -222,6 +246,7 @@ export default function ShopScreen() {
   };
 
   const savePreferredStore = async (storeId: number | null) => {
+    await triggerLightHaptic();
     setSelectedStoreId(storeId);
     setSavingStore(true);
 
@@ -240,11 +265,13 @@ export default function ShopScreen() {
   };
 
   const addToCart = async (product: Product) => {
+    await triggerLightHaptic();
     setSubmittingId(product.id);
     const quantity = desiredQuantities[product.id] ?? 1;
 
     try {
       await api.post('/cart/items', { product_id: product.id, quantity });
+      await triggerSuccessHaptic();
       Alert.alert('Added to cart', `${product.name} x${quantity} was added to your cart.`);
     } catch (error: any) {
       Alert.alert('Could not add item', error.response?.data?.detail || 'Please try again.');
@@ -385,7 +412,10 @@ export default function ShopScreen() {
                             styles.categoryCard,
                             { backgroundColor: theme.backgroundColor, borderColor: isActive ? theme.accentColor : 'transparent' },
                           ]}
-                          onPress={() => setSelectedCategoryId(isAllCategories ? null : categoryItem.id)}
+                          onPress={async () => {
+                            await triggerLightHaptic();
+                            setSelectedCategoryId(isAllCategories ? null : categoryItem.id);
+                          }}
                         >
                           <View style={[styles.categoryEmojiBadge, { backgroundColor: theme.accentColor }]}>
                             <Text style={styles.categoryEmoji}>{theme.emoji}</Text>

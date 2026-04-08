@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../src/api/client';
 import { useAuth } from '../src/context/AuthContext';
 import type { DeliveryWindow, UserProfile } from '../src/types/api';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../src/utils/roles';
 
 export default function CheckoutScreen() {
@@ -51,6 +52,7 @@ export default function CheckoutScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setPlacingOrder(true);
 
     try {
@@ -64,6 +66,7 @@ export default function CheckoutScreen() {
         delivery_window_key: selectedDeliveryWindowKey,
       });
 
+      await triggerSuccessHaptic();
       Alert.alert('Order placed', 'Your grocery order has been placed successfully.');
       router.replace('/(tabs)/orders');
     } catch (error: any) {
@@ -80,7 +83,13 @@ export default function CheckoutScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          onPress={async () => {
+            await triggerLightHaptic();
+            router.back();
+          }}
+          style={styles.backButton}
+        >
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
 
@@ -101,7 +110,10 @@ export default function CheckoutScreen() {
                 <TouchableOpacity
                   key={window.key}
                   style={[styles.deliveryWindowCard, active && styles.deliveryWindowCardActive]}
-                  onPress={() => setSelectedDeliveryWindowKey(window.key)}
+                  onPress={async () => {
+                    await triggerLightHaptic();
+                    setSelectedDeliveryWindowKey(window.key);
+                  }}
                 >
                   <Text style={[styles.deliveryWindowLabel, active && styles.deliveryWindowLabelActive]}>
                     {window.label}
@@ -136,7 +148,10 @@ export default function CheckoutScreen() {
                 <TouchableOpacity
                   key={value}
                   style={[styles.paymentChip, active && styles.paymentChipActive]}
-                  onPress={() => setPaymentMethod(value as typeof paymentMethod)}
+                  onPress={async () => {
+                    await triggerLightHaptic();
+                    setPaymentMethod(value as typeof paymentMethod);
+                  }}
                 >
                   <Text style={[styles.paymentChipText, active && styles.paymentChipTextActive]}>
                     {label}

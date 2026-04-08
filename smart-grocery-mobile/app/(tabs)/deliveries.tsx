@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Redirect, router } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Redirect, router, useFocusEffect } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -15,6 +15,7 @@ import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
 import type { AppUser, Delivery, OrderChatSummary } from '../../src/types/api';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { canHandleDeliveries, getHomeRouteForRole } from '../../src/utils/roles';
 
 type ManagerDeliveryFilter = 'all' | 'unassigned' | 'assigned' | 'on_the_way';
@@ -133,17 +134,21 @@ export default function DeliveriesScreen() {
     }
   }, [canAssignDrivers]);
 
-  useEffect(() => {
-    loadDeliveries();
-  }, [loadDeliveries]);
+  useFocusEffect(
+    useCallback(() => {
+      loadDeliveries();
+    }, [loadDeliveries])
+  );
 
   const assignDriver = async (deliveryId: number, driverId: number | null) => {
+    await triggerLightHaptic();
     setBusyDeliveryId(deliveryId);
 
     try {
       await api.put(`/deliveries/${deliveryId}/assign`, { driver_id: driverId });
       setOpenPickerDeliveryId(null);
       await loadDeliveries();
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not assign driver', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -152,11 +157,13 @@ export default function DeliveriesScreen() {
   };
 
   const updateDeliveryStatus = async (deliveryId: number, status: Delivery['status']) => {
+    await triggerLightHaptic();
     setBusyDeliveryId(deliveryId);
 
     try {
       await api.put(`/deliveries/${deliveryId}/status`, null, { params: { status } });
       await loadDeliveries();
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not update delivery', error.response?.data?.detail || 'Please try again.');
     } finally {

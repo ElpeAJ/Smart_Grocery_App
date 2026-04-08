@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '../src/context/AuthContext';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../src/utils/haptics';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -23,6 +24,7 @@ export default function LoginScreen() {
       return;
     }
 
+    await triggerLightHaptic();
     setSubmitting(true);
     const result = await login(email, password);
     setSubmitting(false);
@@ -32,6 +34,7 @@ export default function LoginScreen() {
       return;
     }
 
+    await triggerSuccessHaptic();
     router.replace('/(tabs)');
   };
 
@@ -65,7 +68,12 @@ export default function LoginScreen() {
         <Text style={styles.buttonText}>{submitting ? 'Signing in...' : 'Login'}</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity onPress={() => router.push('/register')}>
+      <TouchableOpacity
+        onPress={async () => {
+          await triggerLightHaptic();
+          router.push('/register');
+        }}
+      >
         <Text style={styles.link}>Create an account</Text>
       </TouchableOpacity>
     </SafeAreaView>

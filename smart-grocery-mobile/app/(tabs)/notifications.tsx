@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -9,10 +9,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
 import type { Notification } from '../../src/types/api';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 
 type FilterMode = 'unread' | 'read' | 'all';
 
@@ -91,11 +93,14 @@ export default function NotificationsScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
+  useFocusEffect(
+    useCallback(() => {
+      loadNotifications();
+    }, [loadNotifications])
+  );
 
   const updateReadState = async (notificationId: number, isRead: boolean) => {
+    await triggerLightHaptic();
     setBusyId(notificationId);
     try {
       const response = await api.put<Notification>(`/notifications/${notificationId}`, {
@@ -104,6 +109,7 @@ export default function NotificationsScreen() {
       setNotifications((currentNotifications) =>
         currentNotifications.map((item) => (item.id === response.data.id ? response.data : item))
       );
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not update alert', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -112,6 +118,7 @@ export default function NotificationsScreen() {
   };
 
   const markAllRead = async () => {
+    await triggerLightHaptic();
     setMarkingAll(true);
     try {
       const response = await api.put<Notification[]>('/notifications/read-all');
@@ -119,6 +126,7 @@ export default function NotificationsScreen() {
         throw new Error('Unexpected notifications response');
       }
       setNotifications(response.data);
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not mark all read', error.response?.data?.detail || 'Please try again.');
     } finally {

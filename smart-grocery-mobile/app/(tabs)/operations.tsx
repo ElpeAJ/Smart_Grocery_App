@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Redirect, router } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { Redirect, router, useFocusEffect } from 'expo-router';
 import {
   Alert,
   FlatList,
@@ -16,6 +16,7 @@ import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
 import type { Order, OrderChatSummary, Store } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
+import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { canHandleOperations, getHomeRouteForRole } from '../../src/utils/roles';
 
 const VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking', 'awaiting_review'];
@@ -54,7 +55,7 @@ export default function OperationsScreen() {
   const canSubmitForReview = role === 'staff' || role === 'admin' || role === 'manager';
   const canReleaseToDelivery = role === 'admin' || role === 'manager';
 
-  const loadOperations = async () => {
+  const loadOperations = useCallback(async () => {
     try {
       const [ordersResult, storesResult, chatResult] = await Promise.allSettled([
         api.get<Order[]>('/orders/'),
@@ -88,13 +89,16 @@ export default function OperationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
-
-  useEffect(() => {
-    loadOperations();
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadOperations();
+    }, [loadOperations])
+  );
+
   const toggleItemPicked = async (orderItemId: number, picked: boolean) => {
+    await triggerLightHaptic();
     setBusyItemId(orderItemId);
 
     try {
@@ -102,6 +106,7 @@ export default function OperationsScreen() {
       setOrders((currentOrders) =>
         currentOrders.map((order) => (order.id === response.data.id ? response.data : order))
       );
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not update picked item', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -110,11 +115,13 @@ export default function OperationsScreen() {
   };
 
   const submitForReview = async (orderId: number) => {
+    await triggerLightHaptic();
     setBusyOrderId(orderId);
 
     try {
       await api.put(`/orders/${orderId}/status`, null, { params: { status: 'awaiting_review' } });
       await loadOperations();
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not submit order', error.response?.data?.detail || 'Please try again.');
     } finally {
@@ -123,11 +130,13 @@ export default function OperationsScreen() {
   };
 
   const releaseToDelivery = async (orderId: number) => {
+    await triggerLightHaptic();
     setBusyOrderId(orderId);
 
     try {
       await api.put(`/orders/${orderId}/status`, null, { params: { status: 'out_for_delivery' } });
       await loadOperations();
+      await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not release order', error.response?.data?.detail || 'Please try again.');
     } finally {
