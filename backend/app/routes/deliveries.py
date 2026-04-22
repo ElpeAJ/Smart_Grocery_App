@@ -35,6 +35,9 @@ def create_delivery(
         order_id=delivery.order_id,
         driver_id=delivery.driver_id,
         delivery_address=delivery.delivery_address,
+        driver_assigned_at=datetime.utcnow() if delivery.driver_id else None,
+        started_at=None,
+        delivered_at=None,
         status="assigned"
     )
     db.add(new_delivery)
@@ -88,6 +91,9 @@ def assign_delivery_driver(
             raise HTTPException(status_code=400, detail="Selected user is not a driver")
 
     delivery.driver_id = payload.driver_id
+    delivery.driver_assigned_at = datetime.utcnow() if payload.driver_id is not None else None
+    if payload.driver_id is None:
+        delivery.started_at = None
     thread = delivery.order.chat_thread
     if thread and payload.driver_id is not None:
         driver_name = driver.full_name if payload.driver_id is not None else "A driver"
@@ -137,6 +143,7 @@ def update_delivery_status(
 
     delivery.status = status
     if status == "on_the_way":
+        delivery.started_at = datetime.utcnow()
         create_notification(
             db,
             user_id=delivery.order.user_id,
@@ -146,12 +153,13 @@ def update_delivery_status(
         )
     if status == "delivered":
         delivery.order.status = "delivered"
+        delivery.delivered_at = datetime.utcnow()
         completion_record = delivery.order.completion_record
         if not completion_record:
             completion_record = models.OrderCompletionRecord(order_id=delivery.order.id)
             db.add(completion_record)
         completion_record.driver_user_id = delivery.driver_id
-        completion_record.completed_at = datetime.utcnow()
+        completion_record.completed_at = delivery.delivered_at
         create_notification(
             db,
             user_id=delivery.order.user_id,

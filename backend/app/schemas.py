@@ -252,6 +252,62 @@ class ReportEntry(BaseModel):
     delivery_id: Optional[int] = None
     driver_id: Optional[int] = None
     driver_name: Optional[str] = None
+    items_count: int = 0
+    pick_minutes: Optional[float] = None
+    delivery_minutes: Optional[float] = None
+    assignment_to_delivery_minutes: Optional[float] = None
+
+
+class PickerPerformanceSummary(BaseModel):
+    total_orders_picked: int
+    total_items_picked: int
+    average_pick_minutes: float
+    average_items_per_hour: float
+    fastest_pick_minutes: Optional[float] = None
+    slowest_pick_minutes: Optional[float] = None
+
+
+class DriverPerformanceSummary(BaseModel):
+    completed_deliveries: int
+    average_delivery_minutes: float
+    average_assignment_to_delivery_minutes: float
+    fastest_delivery_minutes: Optional[float] = None
+    slowest_delivery_minutes: Optional[float] = None
+
+
+class StorePerformanceSummary(BaseModel):
+    store_id: Optional[int]
+    store_name: str
+    completed_orders: int
+    total_revenue: float
+    average_pick_minutes: float
+    average_delivery_minutes: float
+
+
+class PickerLeaderboardEntry(BaseModel):
+    user_id: int
+    full_name: str
+    completed_orders: int
+    total_items_picked: int
+    average_pick_minutes: float
+    average_items_per_hour: float
+
+
+class DriverLeaderboardEntry(BaseModel):
+    user_id: int
+    full_name: str
+    completed_deliveries: int
+    average_delivery_minutes: float
+    average_assignment_to_delivery_minutes: float
+
+
+class SystemPerformanceSummary(BaseModel):
+    total_deliveries: int
+    average_pick_minutes: float
+    average_delivery_minutes: float
+    stores: List[StorePerformanceSummary]
+    picker_leaderboard: List[PickerLeaderboardEntry]
+    driver_leaderboard: List[DriverLeaderboardEntry]
 
 
 class ReportSummaryResponse(BaseModel):
@@ -260,6 +316,9 @@ class ReportSummaryResponse(BaseModel):
     completed_orders: int
     total_revenue: float
     entries: List[ReportEntry]
+    picker_summary: Optional[PickerPerformanceSummary] = None
+    driver_summary: Optional[DriverPerformanceSummary] = None
+    system_summary: Optional[SystemPerformanceSummary] = None
 
 
 class NotificationResponse(BaseModel):

@@ -108,6 +108,62 @@ export type ReportEntry = {
   delivery_id: number | null;
   driver_id: number | null;
   driver_name: string | null;
+  items_count: number;
+  pick_minutes: number | null;
+  delivery_minutes: number | null;
+  assignment_to_delivery_minutes: number | null;
+};
+
+export type PickerPerformanceSummary = {
+  total_orders_picked: number;
+  total_items_picked: number;
+  average_pick_minutes: number;
+  average_items_per_hour: number;
+  fastest_pick_minutes: number | null;
+  slowest_pick_minutes: number | null;
+};
+
+export type DriverPerformanceSummary = {
+  completed_deliveries: number;
+  average_delivery_minutes: number;
+  average_assignment_to_delivery_minutes: number;
+  fastest_delivery_minutes: number | null;
+  slowest_delivery_minutes: number | null;
+};
+
+export type StorePerformanceSummary = {
+  store_id: number | null;
+  store_name: string;
+  completed_orders: number;
+  total_revenue: number;
+  average_pick_minutes: number;
+  average_delivery_minutes: number;
+};
+
+export type PickerLeaderboardEntry = {
+  user_id: number;
+  full_name: string;
+  completed_orders: number;
+  total_items_picked: number;
+  average_pick_minutes: number;
+  average_items_per_hour: number;
+};
+
+export type DriverLeaderboardEntry = {
+  user_id: number;
+  full_name: string;
+  completed_deliveries: number;
+  average_delivery_minutes: number;
+  average_assignment_to_delivery_minutes: number;
+};
+
+export type SystemPerformanceSummary = {
+  total_deliveries: number;
+  average_pick_minutes: number;
+  average_delivery_minutes: number;
+  stores: StorePerformanceSummary[];
+  picker_leaderboard: PickerLeaderboardEntry[];
+  driver_leaderboard: DriverLeaderboardEntry[];
 };
 
 export type ReportSummary = {
@@ -116,6 +172,9 @@ export type ReportSummary = {
   completed_orders: number;
   total_revenue: number;
   entries: ReportEntry[];
+  picker_summary: PickerPerformanceSummary | null;
+  driver_summary: DriverPerformanceSummary | null;
+  system_summary: SystemPerformanceSummary | null;
 };
 
 export type Notification = {

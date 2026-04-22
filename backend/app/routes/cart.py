@@ -225,6 +225,9 @@ def checkout_cart(
             delivery_window_label=selected_window["label"],
             delivery_window_start=datetime.fromisoformat(selected_window["starts_at"]),
             delivery_window_end=datetime.fromisoformat(selected_window["ends_at"]),
+            driver_assigned_at=None,
+            started_at=None,
+            delivered_at=None,
             status="assigned",
         )
     )

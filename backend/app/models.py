@@ -156,6 +156,9 @@ class Delivery(Base):
     delivery_window_label = Column(String, nullable=True)
     delivery_window_start = Column(DateTime, nullable=True)
     delivery_window_end = Column(DateTime, nullable=True)
+    driver_assigned_at = Column(DateTime, nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    delivered_at = Column(DateTime, nullable=True)
     status = Column(String, default="assigned")  # assigned, on_the_way, delivered
 
     order = relationship("Order", back_populates="delivery")

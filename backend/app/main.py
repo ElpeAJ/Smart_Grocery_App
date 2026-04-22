@@ -43,6 +43,12 @@ def ensure_delivery_window_columns():
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_start DATETIME"))
         if "delivery_window_end" not in delivery_columns:
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_end DATETIME"))
+        if "driver_assigned_at" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN driver_assigned_at DATETIME"))
+        if "started_at" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN started_at DATETIME"))
+        if "delivered_at" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivered_at DATETIME"))
 
 DEFAULT_PRODUCT_CATEGORIES = [
     "Fresh Fruits",

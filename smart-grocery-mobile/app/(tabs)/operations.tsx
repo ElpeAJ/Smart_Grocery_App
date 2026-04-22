@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Redirect, router, useFocusEffect } from 'expo-router';
 import {
   Alert,
@@ -19,7 +19,8 @@ import { formatCedi } from '../../src/utils/currency';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { canHandleOperations, getHomeRouteForRole } from '../../src/utils/roles';
 
-const VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking', 'awaiting_review'];
+const STAFF_VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking'];
+const MANAGER_VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking', 'awaiting_review'];
 
 function formatOrderStatus(status: Order['status']) {
   switch (status) {
@@ -70,9 +71,10 @@ export default function OperationsScreen() {
       const ordersResponse = ordersResult.value;
       const storesResponse = storesResult.status === 'fulfilled' ? storesResult.value : null;
       const chatResponse = chatResult.status === 'fulfilled' ? chatResult.value : null;
+      const allowedStatuses = role === 'staff' ? STAFF_VISIBLE_STATUSES : MANAGER_VISIBLE_STATUSES;
 
       const visibleOrders = ordersResponse.data
-        .filter((order) => VISIBLE_STATUSES.includes(order.status))
+        .filter((order) => allowedStatuses.includes(order.status))
         .sort(
           (firstOrder, secondOrder) =>
             new Date(secondOrder.created_at).getTime() - new Date(firstOrder.created_at).getTime()
@@ -89,13 +91,25 @@ export default function OperationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [role]);
 
   useFocusEffect(
     useCallback(() => {
       loadOperations();
     }, [loadOperations])
   );
+
+  useEffect(() => {
+    if (!canHandleOperations(role)) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      loadOperations();
+    }, 5000);
+
+    return () => clearInterval(intervalId);
+  }, [loadOperations, role]);
 
   const toggleItemPicked = async (orderItemId: number, picked: boolean) => {
     await triggerLightHaptic();

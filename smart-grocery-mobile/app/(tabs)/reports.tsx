@@ -4,6 +4,7 @@ import {
   Alert,
   FlatList,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -14,7 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
-import type { ReportPeriod, ReportSummary } from '../../src/types/api';
+import type { ReportEntry, ReportPeriod, ReportSummary } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
 import { canViewReports, getHomeRouteForRole } from '../../src/utils/roles';
 
@@ -38,6 +39,56 @@ function formatScopeLabel(scope: ReportSummary['scope']) {
     default:
       return 'Report view';
   }
+}
+
+function formatMinutes(value: number | null | undefined) {
+  if (value === null || value === undefined) {
+    return 'N/A';
+  }
+  return `${value.toFixed(1)} min`;
+}
+
+function EntryCard({ item, scope }: { item: ReportEntry; scope: ReportSummary['scope'] }) {
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardTopRow}>
+        <View>
+          <Text style={styles.cardTitle}>Order #{item.order_id}</Text>
+          <Text style={styles.cardSubtitle}>{item.customer_name || `Customer #${item.customer_id}`}</Text>
+        </View>
+        <Text style={styles.amountPill}>{formatCedi(item.total_amount)}</Text>
+      </View>
+      <Text style={styles.metaText}>
+        Store: {item.store_name || (item.store_id ? `Store #${item.store_id}` : 'Unassigned')}
+      </Text>
+      {scope !== 'staff' ? (
+        <Text style={styles.metaText}>
+          Driver: {item.driver_name || (item.driver_id ? `Driver #${item.driver_id}` : 'Unassigned')}
+        </Text>
+      ) : null}
+      {scope === 'staff' ? (
+        <>
+          <Text style={styles.metaText}>Items picked: {item.items_count}</Text>
+          <Text style={styles.metaText}>Pick time: {formatMinutes(item.pick_minutes)}</Text>
+        </>
+      ) : null}
+      {scope === 'driver' ? (
+        <>
+          <Text style={styles.metaText}>Delivery time: {formatMinutes(item.delivery_minutes)}</Text>
+          <Text style={styles.metaText}>
+            Assignment to delivered: {formatMinutes(item.assignment_to_delivery_minutes)}
+          </Text>
+        </>
+      ) : null}
+      {scope === 'system' ? (
+        <>
+          <Text style={styles.metaText}>Pick time: {formatMinutes(item.pick_minutes)}</Text>
+          <Text style={styles.metaText}>Delivery time: {formatMinutes(item.delivery_minutes)}</Text>
+        </>
+      ) : null}
+      <Text style={styles.metaText}>Completed: {new Date(item.completed_at).toLocaleString()}</Text>
+    </View>
+  );
 }
 
 export default function ReportsScreen() {
@@ -78,20 +129,19 @@ export default function ReportsScreen() {
 
   const heading =
     report.scope === 'system'
-      ? 'Fulfillment Reports'
+      ? 'Store Performance'
       : report.scope === 'staff'
-        ? 'Picker Reports'
-        : 'Driver Reports';
+        ? 'Picking Performance'
+        : 'Delivery Performance';
 
   const subtitle =
     report.scope === 'system'
-      ? 'Delivered orders across the system.'
+      ? 'Track store health, picker performance, and driver throughput.'
       : report.scope === 'staff'
-        ? 'Completed orders you helped pick.'
-        : 'Completed deliveries assigned to you.';
+        ? 'Measure how quickly and consistently you complete order picking.'
+        : 'Track how quickly deliveries move from assignment to customer handoff.';
 
-  const averageOrderValue =
-    report.completed_orders > 0 ? report.total_revenue / report.completed_orders : 0;
+  const averageOrderValue = report.completed_orders > 0 ? report.total_revenue / report.completed_orders : 0;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -117,16 +167,12 @@ export default function ReportsScreen() {
               <Text style={styles.scopeBadge}>{formatScopeLabel(report.scope)}</Text>
             </View>
 
-            <FlatList
-              data={PERIOD_OPTIONS}
-              horizontal
-              keyExtractor={(item) => item.value}
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.periodRow}
-              renderItem={({ item }) => {
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.periodRow}>
+              {PERIOD_OPTIONS.map((item) => {
                 const active = item.value === period;
                 return (
                   <TouchableOpacity
+                    key={item.value}
                     style={[styles.periodChip, active && styles.periodChipActive]}
                     onPress={() => setPeriod(item.value)}
                   >
@@ -135,13 +181,15 @@ export default function ReportsScreen() {
                     </Text>
                   </TouchableOpacity>
                 );
-              }}
-            />
+              })}
+            </ScrollView>
 
             <View style={styles.metricsRow}>
               <View style={styles.metricCard}>
                 <Text style={styles.metricValue}>{report.completed_orders}</Text>
-                <Text style={styles.metricLabel}>Completed Orders</Text>
+                <Text style={styles.metricLabel}>
+                  {report.scope === 'driver' ? 'Completed Deliveries' : 'Completed Orders'}
+                </Text>
               </View>
               <View style={styles.metricCard}>
                 <Text style={styles.metricValue}>{formatCedi(report.total_revenue)}</Text>
@@ -153,38 +201,151 @@ export default function ReportsScreen() {
               </View>
             </View>
 
+            {report.scope === 'staff' && report.picker_summary ? (
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionTitle}>Your picking performance</Text>
+                <View style={styles.metricsRow}>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{report.picker_summary.total_items_picked}</Text>
+                    <Text style={styles.metricLabel}>Items Picked</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{formatMinutes(report.picker_summary.average_pick_minutes)}</Text>
+                    <Text style={styles.metricLabel}>Avg. Pick Time</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{report.picker_summary.average_items_per_hour.toFixed(1)}</Text>
+                    <Text style={styles.metricLabel}>Items / Hour</Text>
+                  </View>
+                </View>
+                <View style={styles.metricsRow}>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{formatMinutes(report.picker_summary.fastest_pick_minutes)}</Text>
+                    <Text style={styles.metricLabel}>Fastest Pick</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{formatMinutes(report.picker_summary.slowest_pick_minutes)}</Text>
+                    <Text style={styles.metricLabel}>Slowest Pick</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{report.picker_summary.total_orders_picked}</Text>
+                    <Text style={styles.metricLabel}>Orders Picked</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {report.scope === 'driver' && report.driver_summary ? (
+              <View style={styles.sectionBlock}>
+                <Text style={styles.sectionTitle}>Your delivery performance</Text>
+                <View style={styles.metricsRow}>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{report.driver_summary.completed_deliveries}</Text>
+                    <Text style={styles.metricLabel}>Delivered</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{formatMinutes(report.driver_summary.average_delivery_minutes)}</Text>
+                    <Text style={styles.metricLabel}>Avg. Delivery</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>
+                      {formatMinutes(report.driver_summary.average_assignment_to_delivery_minutes)}
+                    </Text>
+                    <Text style={styles.metricLabel}>Assign to Delivered</Text>
+                  </View>
+                </View>
+                <View style={styles.metricsRow}>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{formatMinutes(report.driver_summary.fastest_delivery_minutes)}</Text>
+                    <Text style={styles.metricLabel}>Fastest Delivery</Text>
+                  </View>
+                  <View style={styles.metricCard}>
+                    <Text style={styles.metricValue}>{formatMinutes(report.driver_summary.slowest_delivery_minutes)}</Text>
+                    <Text style={styles.metricLabel}>Slowest Delivery</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+
+            {report.scope === 'system' && report.system_summary ? (
+              <>
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionTitle}>System overview</Text>
+                  <View style={styles.metricsRow}>
+                    <View style={styles.metricCard}>
+                      <Text style={styles.metricValue}>{report.system_summary.total_deliveries}</Text>
+                      <Text style={styles.metricLabel}>Deliveries</Text>
+                    </View>
+                    <View style={styles.metricCard}>
+                      <Text style={styles.metricValue}>{formatMinutes(report.system_summary.average_pick_minutes)}</Text>
+                      <Text style={styles.metricLabel}>Avg. Pick Time</Text>
+                    </View>
+                    <View style={styles.metricCard}>
+                      <Text style={styles.metricValue}>{formatMinutes(report.system_summary.average_delivery_minutes)}</Text>
+                      <Text style={styles.metricLabel}>Avg. Delivery</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionTitle}>Store performance</Text>
+                  {report.system_summary.stores.map((store) => (
+                    <View key={`${store.store_id}-${store.store_name}`} style={styles.card}>
+                      <View style={styles.cardTopRow}>
+                        <View>
+                          <Text style={styles.cardTitle}>{store.store_name}</Text>
+                          <Text style={styles.cardSubtitle}>{store.completed_orders} completed orders</Text>
+                        </View>
+                        <Text style={styles.amountPill}>{formatCedi(store.total_revenue)}</Text>
+                      </View>
+                      <Text style={styles.metaText}>Avg. pick time: {formatMinutes(store.average_pick_minutes)}</Text>
+                      <Text style={styles.metaText}>Avg. delivery time: {formatMinutes(store.average_delivery_minutes)}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionTitle}>Picker performance</Text>
+                  {report.system_summary.picker_leaderboard.map((picker) => (
+                    <View key={picker.user_id} style={styles.card}>
+                      <Text style={styles.cardTitle}>{picker.full_name}</Text>
+                      <Text style={styles.metaText}>Orders picked: {picker.completed_orders}</Text>
+                      <Text style={styles.metaText}>Items picked: {picker.total_items_picked}</Text>
+                      <Text style={styles.metaText}>Avg. pick time: {formatMinutes(picker.average_pick_minutes)}</Text>
+                      <Text style={styles.metaText}>Items per hour: {picker.average_items_per_hour.toFixed(1)}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.sectionBlock}>
+                  <Text style={styles.sectionTitle}>Driver performance</Text>
+                  {report.system_summary.driver_leaderboard.map((driver) => (
+                    <View key={driver.user_id} style={styles.card}>
+                      <Text style={styles.cardTitle}>{driver.full_name}</Text>
+                      <Text style={styles.metaText}>Completed deliveries: {driver.completed_deliveries}</Text>
+                      <Text style={styles.metaText}>Avg. delivery time: {formatMinutes(driver.average_delivery_minutes)}</Text>
+                      <Text style={styles.metaText}>
+                        Assign to delivered: {formatMinutes(driver.average_assignment_to_delivery_minutes)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+              </>
+            ) : null}
+
             <View style={styles.sectionIntro}>
               <Text style={styles.sectionTitle}>Completed activity</Text>
-              <Text style={styles.sectionHint}>A clean record of work finished during this period.</Text>
+              <Text style={styles.sectionHint}>Detailed records for the selected reporting period.</Text>
             </View>
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyCard}>
             <Text style={styles.emptyTitle}>No completed work in this period yet.</Text>
-            <Text style={styles.emptyText}>Delivered orders will appear here automatically.</Text>
+            <Text style={styles.emptyText}>Finished orders and deliveries will appear here automatically.</Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <View style={styles.card}>
-            <View style={styles.cardTopRow}>
-              <View>
-                <Text style={styles.cardTitle}>Order #{item.order_id}</Text>
-                <Text style={styles.cardSubtitle}>{item.customer_name || `Customer #${item.customer_id}`}</Text>
-              </View>
-              <Text style={styles.amountPill}>{formatCedi(item.total_amount)}</Text>
-            </View>
-            <Text style={styles.metaText}>
-              Store: {item.store_name || (item.store_id ? `Store #${item.store_id}` : 'Unassigned')}
-            </Text>
-            <Text style={styles.metaText}>
-              Driver: {item.driver_name || (item.driver_id ? `Driver #${item.driver_id}` : 'Unassigned')}
-            </Text>
-            <Text style={styles.metaText}>
-              Completed: {new Date(item.completed_at).toLocaleString()}
-            </Text>
-          </View>
-        )}
+        renderItem={({ item }) => <EntryCard item={item} scope={report.scope} />}
       />
     </SafeAreaView>
   );
@@ -258,6 +419,9 @@ const styles = StyleSheet.create({
   periodChipTextActive: {
     color: '#fff',
   },
+  sectionBlock: {
+    gap: 10,
+  },
   metricsRow: {
     flexDirection: 'row',
     gap: 12,
@@ -325,22 +489,22 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     overflow: 'hidden',
-    fontWeight: '700',
+    fontWeight: '800',
   },
   emptyCard: {
     backgroundColor: '#fff',
-    borderRadius: 22,
-    padding: 20,
+    borderRadius: 20,
+    padding: 24,
     alignItems: 'center',
   },
   emptyTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#0F172A',
   },
   emptyText: {
     marginTop: 8,
-    color: '#64748B',
     textAlign: 'center',
+    color: '#64748B',
   },
 });
