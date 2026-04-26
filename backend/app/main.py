@@ -31,6 +31,9 @@ def ensure_delivery_window_columns():
         delivery_columns = {
             row[1] for row in connection.execute(text("PRAGMA table_info(deliveries)")).fetchall()
         }
+        profile_columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(user_profiles)")).fetchall()
+        }
 
         if "delivery_window_label" not in order_columns:
             connection.execute(text("ALTER TABLE orders ADD COLUMN delivery_window_label VARCHAR"))
@@ -43,12 +46,26 @@ def ensure_delivery_window_columns():
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_start DATETIME"))
         if "delivery_window_end" not in delivery_columns:
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_end DATETIME"))
+        if "delivery_latitude" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_latitude FLOAT"))
+        if "delivery_longitude" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_longitude FLOAT"))
+        if "driver_latitude" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN driver_latitude FLOAT"))
+        if "driver_longitude" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN driver_longitude FLOAT"))
+        if "driver_location_updated_at" not in delivery_columns:
+            connection.execute(text("ALTER TABLE deliveries ADD COLUMN driver_location_updated_at DATETIME"))
         if "driver_assigned_at" not in delivery_columns:
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN driver_assigned_at DATETIME"))
         if "started_at" not in delivery_columns:
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN started_at DATETIME"))
         if "delivered_at" not in delivery_columns:
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivered_at DATETIME"))
+        if "delivery_latitude" not in profile_columns:
+            connection.execute(text("ALTER TABLE user_profiles ADD COLUMN delivery_latitude FLOAT"))
+        if "delivery_longitude" not in profile_columns:
+            connection.execute(text("ALTER TABLE user_profiles ADD COLUMN delivery_longitude FLOAT"))
 
 DEFAULT_PRODUCT_CATEGORIES = [
     "Fresh Fruits",

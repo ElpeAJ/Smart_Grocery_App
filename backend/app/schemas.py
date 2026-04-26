@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Literal
-from datetime import datetime
+from datetime import date, datetime
 
 
 class Token(BaseModel):
@@ -62,6 +62,8 @@ class ProductCategoryRename(BaseModel):
 class UserProfileUpdate(BaseModel):
     phone_number: Optional[str] = None
     delivery_address: Optional[str] = None
+    delivery_latitude: Optional[float] = None
+    delivery_longitude: Optional[float] = None
     preferred_store_id: Optional[int] = None
 
 
@@ -70,6 +72,8 @@ class UserProfileResponse(BaseModel):
     user_id: int
     phone_number: Optional[str]
     delivery_address: Optional[str]
+    delivery_latitude: Optional[float]
+    delivery_longitude: Optional[float]
     preferred_store_id: Optional[int]
     preferred_store: Optional[StoreResponse]
 
@@ -160,6 +164,8 @@ class CartResponse(BaseModel):
 
 class CheckoutRequest(BaseModel):
     delivery_address: str = Field(min_length=5)
+    delivery_latitude: Optional[float] = None
+    delivery_longitude: Optional[float] = None
     payment_method: Literal["cash_on_delivery", "mobile_money", "card"]
     delivery_window_key: str = Field(min_length=1)
 
@@ -188,6 +194,24 @@ class OrderItemResponse(BaseModel):
         from_attributes = True
 
 
+class OrderReviewCreate(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: Optional[str] = Field(default=None, max_length=500)
+
+
+class OrderReviewResponse(BaseModel):
+    id: int
+    order_id: int
+    user_id: int
+    rating: int
+    comment: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class OrderCreate(BaseModel):
     store_id: Optional[int] = None
     items: List[OrderItemCreate]
@@ -204,6 +228,7 @@ class OrderResponse(BaseModel):
     created_at: datetime
     items: List[OrderItemResponse]
     all_items_picked: bool
+    review: Optional[OrderReviewResponse] = None
 
     class Config:
         from_attributes = True
@@ -219,13 +244,22 @@ class DeliveryResponse(BaseModel):
     id: int
     order_id: int
     driver_id: Optional[int]
+    customer_id: Optional[int] = None
     driver_name: Optional[str] = None
     customer_name: Optional[str] = None
     store_name: Optional[str] = None
     delivery_address: str
+    delivery_latitude: Optional[float] = None
+    delivery_longitude: Optional[float] = None
+    driver_latitude: Optional[float] = None
+    driver_longitude: Optional[float] = None
+    driver_location_updated_at: Optional[datetime] = None
     delivery_window_label: Optional[str] = None
     delivery_window_start: Optional[datetime] = None
     delivery_window_end: Optional[datetime] = None
+    driver_assigned_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
     status: Literal["assigned", "on_the_way", "delivered"]
     order_status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = None
 
@@ -235,6 +269,11 @@ class DeliveryResponse(BaseModel):
 
 class DeliveryAssignRequest(BaseModel):
     driver_id: Optional[int] = None
+
+
+class DeliveryLocationUpdate(BaseModel):
+    driver_latitude: float
+    driver_longitude: float
 
 
 class OrderItemPickUpdate(BaseModel):
@@ -247,6 +286,7 @@ class ReportEntry(BaseModel):
     customer_name: Optional[str] = None
     store_id: Optional[int]
     store_name: Optional[str] = None
+    order_status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = None
     total_amount: float
     completed_at: datetime
     delivery_id: Optional[int] = None
@@ -256,6 +296,7 @@ class ReportEntry(BaseModel):
     pick_minutes: Optional[float] = None
     delivery_minutes: Optional[float] = None
     assignment_to_delivery_minutes: Optional[float] = None
+    review: Optional[OrderReviewResponse] = None
 
 
 class PickerPerformanceSummary(BaseModel):
@@ -313,6 +354,9 @@ class SystemPerformanceSummary(BaseModel):
 class ReportSummaryResponse(BaseModel):
     scope: Literal["system", "staff", "driver"]
     period: Literal["day", "week", "month", "quarter", "half_year", "year"]
+    anchor_date: date
+    range_start: datetime
+    range_end: datetime
     completed_orders: int
     total_revenue: float
     entries: List[ReportEntry]

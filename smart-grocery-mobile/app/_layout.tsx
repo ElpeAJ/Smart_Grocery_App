@@ -11,12 +11,12 @@ export default function RootLayout() {
           <Stack.Screen name="index" />
           <Stack.Screen name="login" />
           <Stack.Screen name="register" />
-          <Stack.Screen name="(tabs)" />
-          <Stack.Screen name="product/[id]" />
-          <Stack.Screen name="checkout" />
-          <Stack.Screen name="help" />
-          <Stack.Screen name="order-chat/[orderId]" />
-        </Stack>
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="product/[id]" />
+        <Stack.Screen name="checkout" />
+        <Stack.Screen name="map-picker" />
+        <Stack.Screen name="help" />
+      </Stack>
       </AuthProvider>
     </SafeAreaProvider>
   );

@@ -14,7 +14,7 @@ def update_stock(
     product_id: int,
     stock_quantity: int,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     if stock_quantity < 0:
         raise HTTPException(status_code=400, detail="Stock quantity cannot be negative")
@@ -30,7 +30,7 @@ def update_stock(
     if stock_quantity <= 5:
         create_notifications_for_roles(
             db,
-            roles=("admin", "manager"),
+            roles=("manager",),
             title="Low stock alert",
             message=f"{product.name} is running low with only {stock_quantity} items left.",
             kind="inventory",

@@ -21,6 +21,7 @@ class User(Base):
     completed_order_records = relationship("OrderCompletionRecord", back_populates="driver")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     chat_messages = relationship("OrderChatMessage", back_populates="sender", cascade="all, delete-orphan")
+    reviews = relationship("OrderReview", back_populates="user", cascade="all, delete-orphan")
 
 
 class Store(Base):
@@ -98,6 +99,12 @@ class Order(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    review = relationship(
+        "OrderReview",
+        back_populates="order",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @property
     def all_items_picked(self):
@@ -152,6 +159,11 @@ class Delivery(Base):
     order_id = Column(Integer, ForeignKey("orders.id"), unique=True)
     driver_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     delivery_address = Column(String, nullable=False)
+    delivery_latitude = Column(Float, nullable=True)
+    delivery_longitude = Column(Float, nullable=True)
+    driver_latitude = Column(Float, nullable=True)
+    driver_longitude = Column(Float, nullable=True)
+    driver_location_updated_at = Column(DateTime, nullable=True)
     delivery_window_key = Column(String, nullable=True)
     delivery_window_label = Column(String, nullable=True)
     delivery_window_start = Column(DateTime, nullable=True)
@@ -177,8 +189,27 @@ class Delivery(Base):
         return self.order.user.full_name if self.order and self.order.user else None
 
     @property
+    def customer_id(self):
+        return self.order.user_id if self.order else None
+
+    @property
     def store_name(self):
         return self.order.store.name if self.order and self.order.store else None
+
+
+class OrderReview(Base):
+    __tablename__ = "order_reviews"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    rating = Column(Integer, nullable=False)
+    comment = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    order = relationship("Order", back_populates="review")
+    user = relationship("User", back_populates="reviews")
 
 
 class Cart(Base):
@@ -222,6 +253,8 @@ class UserProfile(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     phone_number = Column(String, nullable=True)
     delivery_address = Column(String, nullable=True)
+    delivery_latitude = Column(Float, nullable=True)
+    delivery_longitude = Column(Float, nullable=True)
     preferred_store_id = Column(Integer, ForeignKey("stores.id"), nullable=True)
 
     user = relationship("User", back_populates="profile")

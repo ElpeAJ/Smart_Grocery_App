@@ -9,3 +9,5 @@ const normalizedApiBaseUrl = rawApiBaseUrl.replace(/\/+$/, '').replace(/\/docs$/
 
 export const BASE_URL = normalizedApiBaseUrl;
 export const API_BASE_URL = normalizedApiBaseUrl;
+export const GOOGLE_MAPS_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || '';
+export const GOOGLE_PLACES_ENABLED = GOOGLE_MAPS_API_KEY.length > 0;

@@ -221,6 +221,8 @@ def checkout_cart(
             order_id=new_order.id,
             driver_id=None,
             delivery_address=checkout_data.delivery_address,
+            delivery_latitude=checkout_data.delivery_latitude,
+            delivery_longitude=checkout_data.delivery_longitude,
             delivery_window_key=selected_window["key"],
             delivery_window_label=selected_window["label"],
             delivery_window_start=datetime.fromisoformat(selected_window["starts_at"]),

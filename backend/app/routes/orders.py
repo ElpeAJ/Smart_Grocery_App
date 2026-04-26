@@ -96,12 +96,51 @@ def get_my_orders(
     return db.query(models.Order).filter(models.Order.user_id == current_user.id).all()
 
 
+@router.put("/{order_id}/review", response_model=schemas.OrderReviewResponse)
+def create_or_update_order_review(
+    order_id: int,
+    payload: schemas.OrderReviewCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    order = db.query(models.Order).filter(models.Order.id == order_id).first()
+
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if order.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only review your own delivered orders")
+
+    if order.status != "delivered":
+        raise HTTPException(status_code=400, detail="You can only review an order after delivery is complete")
+
+    review = order.review
+    next_comment = payload.comment.strip() if payload.comment else None
+
+    if review is None:
+        review = models.OrderReview(
+            order_id=order.id,
+            user_id=current_user.id,
+            rating=payload.rating,
+            comment=next_comment,
+        )
+        db.add(review)
+    else:
+        review.rating = payload.rating
+        review.comment = next_comment
+        review.updated_at = datetime.utcnow()
+
+    db.commit()
+    db.refresh(review)
+    return review
+
+
 @router.get("/", response_model=list[schemas.OrderResponse])
 def get_all_orders(
     store_id: Optional[int] = Query(default=None),
     status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff"))
 ):
     query = db.query(models.Order)
 
@@ -119,7 +158,7 @@ def update_order_status(
     order_id: int,
     status: Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"],
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff"))
 ):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
 
@@ -135,7 +174,7 @@ def update_order_status(
         order.status = "awaiting_review"
         create_notifications_for_roles(
             db,
-            roles=("admin", "manager"),
+            roles=("manager",),
             title="Order awaiting review",
             message=f"Order #{order.id} has been fully picked and is awaiting delivery approval.",
             kind="operations",
@@ -154,10 +193,10 @@ def update_order_status(
             detail="All items must be picked before the order can go out for delivery",
         )
     if status == "out_for_delivery":
-        if current_user.role not in {"admin", "manager"}:
+        if current_user.role != "manager":
             raise HTTPException(
                 status_code=403,
-                detail="Only managers or admins can release orders to delivery",
+                detail="Only managers can release orders to delivery",
             )
         if order.status != "awaiting_review":
             raise HTTPException(
@@ -197,7 +236,7 @@ def update_order_item_pick_status(
     order_item_id: int,
     payload: schemas.OrderItemPickUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff"))
 ):
     order_item = db.query(models.OrderItem).filter(models.OrderItem.id == order_item_id).first()
 

@@ -1,7 +1,9 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Redirect, router, useFocusEffect } from 'expo-router';
 import {
   Alert,
+  Animated,
   FlatList,
   Pressable,
   RefreshControl,
@@ -12,7 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import api from '../../src/api/client';
 import ProductArtwork from '../../src/components/ProductArtwork';
@@ -21,11 +23,11 @@ import { useAuth } from '../../src/context/AuthContext';
 import type { Product, ProductCategory, Store, UserProfile } from '../../src/types/api';
 import { getCategoryTheme } from '../../src/utils/catalog';
 import { formatCedi } from '../../src/utils/currency';
+import { loadFavoriteProductIds, saveFavoriteProductIds } from '../../src/utils/favorites';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../../src/utils/roles';
 
 type ShopListItem =
-  | { key: 'sticky-search'; type: 'sticky-search' }
   | { key: 'categories'; type: 'categories' }
   | { key: 'most-shopped'; type: 'most-shopped' }
   | { key: 'products-header'; type: 'products-header' }
@@ -35,26 +37,42 @@ function ProductCard({
   item,
   desiredQuantity,
   submittingId,
+  isFavorite,
   onChangeDesiredQuantity,
   onAddToCart,
+  onToggleFavorite,
 }: {
   item: Product;
   desiredQuantity: number;
   submittingId: number | null;
+  isFavorite: boolean;
   onChangeDesiredQuantity: (product: Product, delta: number) => void;
   onAddToCart: (product: Product) => void;
+  onToggleFavorite: (product: Product) => void;
 }) {
   const disabled = item.status !== 'in_stock' || submittingId === item.id;
   const categoryTheme = getCategoryTheme(item.category?.name);
 
   return (
     <View style={styles.productCard}>
-      <ProductArtwork
-        imageUrl={item.image_url}
-        categoryName={item.category?.name}
-        productName={item.name}
-        variant="card"
-      />
+      <View style={styles.productArtworkWrap}>
+        <ProductArtwork
+          imageUrl={item.image_url}
+          categoryName={item.category?.name}
+          productName={item.name}
+          variant="list"
+        />
+        <TouchableOpacity
+          style={[styles.productImageFavoriteButton, isFavorite && styles.productImageFavoriteButtonActive]}
+          onPress={() => onToggleFavorite(item)}
+        >
+          <Ionicons
+            name={isFavorite ? 'heart' : 'heart-outline'}
+            size={18}
+            color={isFavorite ? '#DC2626' : '#94A3B8'}
+          />
+        </TouchableOpacity>
+      </View>
       <View style={styles.productContent}>
         <View style={styles.productTopRow}>
           <View style={styles.productTextWrap}>
@@ -74,7 +92,9 @@ function ProductCard({
               {item.category?.name || 'Uncategorized'}
             </Text>
           </View>
-          <Text style={styles.productPrice}>{formatCedi(item.price)}</Text>
+          <View style={styles.priceBadge}>
+            <Text style={styles.productPrice}>{formatCedi(item.price)}</Text>
+          </View>
         </View>
         <Text style={styles.stockText}>
           {item.status === 'in_stock' ? `${item.stock_quantity} in stock` : 'Out of stock'}
@@ -117,7 +137,10 @@ function ProductCard({
           onPress={() => onAddToCart(item)}
           disabled={disabled}
         >
-          <Text style={styles.addButtonText}>{submittingId === item.id ? 'Adding...' : 'Add to Cart'}</Text>
+          <View style={styles.addButtonContent}>
+            <Ionicons name="cart-outline" size={18} color="#FFFFFF" />
+            <Text style={styles.addButtonText}>{submittingId === item.id ? 'Adding...' : 'Add to Cart'}</Text>
+          </View>
         </TouchableOpacity>
       </View>
     </View>
@@ -126,6 +149,10 @@ function ProductCard({
 
 export default function ShopScreen() {
   const flatListRef = useRef<FlatList<ShopListItem>>(null);
+  const insets = useSafeAreaInsets();
+  const scrollY = useState(() => new Animated.Value(0))[0];
+  const [heroHeight, setHeroHeight] = useState(320);
+  const [filterHeight, setFilterHeight] = useState(248);
   const [stores, setStores] = useState<Store[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -140,8 +167,14 @@ export default function ShopScreen() {
   const [savingStore, setSavingStore] = useState(false);
   const [desiredQuantities, setDesiredQuantities] = useState<Record<number, number>>({});
   const [productsSectionOffset, setProductsSectionOffset] = useState(0);
+  const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
+  const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
   const { user } = useAuth();
   const role = user?.role;
+
+  const refreshFavorites = useCallback(async () => {
+    setFavoriteIds(await loadFavoriteProductIds(user?.id));
+  }, [user?.id]);
 
   const submitSearch = () =>
     fetchShopData(selectedStoreId, selectedCategoryId, searchTerm, {
@@ -189,10 +222,12 @@ export default function ShopScreen() {
       if (options?.jumpToResults) {
         requestAnimationFrame(() => {
           const productsHeaderRowIndex = search.trim()
-            ? 1
-            : categoryId === null
-              ? 3
-              : 2;
+            ? 0
+            : showOnlyFavorites
+              ? 0
+              : categoryId === null
+                ? 2
+                : 1;
 
           if (productsHeaderRowIndex >= 0) {
             flatListRef.current?.scrollToIndex({
@@ -215,10 +250,11 @@ export default function ShopScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [productsSectionOffset, searchTerm, selectedCategoryId, selectedStoreId]);
+  }, [productsSectionOffset, searchTerm, selectedCategoryId, selectedStoreId, showOnlyFavorites]);
 
   useEffect(() => {
     fetchShopData();
+    refreshFavorites();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -227,7 +263,8 @@ export default function ShopScreen() {
       if (!loading) {
         fetchShopData(selectedStoreId, selectedCategoryId, searchTerm);
       }
-    }, [fetchShopData, loading, searchTerm, selectedCategoryId, selectedStoreId])
+      refreshFavorites();
+    }, [fetchShopData, loading, refreshFavorites, searchTerm, selectedCategoryId, selectedStoreId])
   );
 
   useEffect(() => {
@@ -280,6 +317,22 @@ export default function ShopScreen() {
     }
   };
 
+  const toggleFavorite = async (product: Product) => {
+    await triggerLightHaptic();
+    const nextFavoriteIds = favoriteIds.includes(product.id)
+      ? favoriteIds.filter((favoriteId) => favoriteId !== product.id)
+      : [...favoriteIds, product.id];
+
+    setFavoriteIds(nextFavoriteIds);
+
+    try {
+      await saveFavoriteProductIds(nextFavoriteIds, user?.id);
+    } catch {
+      setFavoriteIds(favoriteIds);
+      Alert.alert('Could not save favorite', 'Please try again.');
+    }
+  };
+
   const activeStore = useMemo(
     () => stores.find((store) => store.id === selectedStoreId) ?? null,
     [stores, selectedStoreId]
@@ -290,6 +343,11 @@ export default function ShopScreen() {
     [categories, selectedCategoryId]
   );
   const hasActiveSearch = searchTerm.trim().length > 0;
+  const activeStoreLabel = activeStore?.name ?? 'All stores';
+  const visibleProducts = useMemo(
+    () => (showOnlyFavorites ? products.filter((product) => favoriteIds.includes(product.id)) : products),
+    [favoriteIds, products, showOnlyFavorites]
+  );
 
   const heroStats = useMemo(
     () => [
@@ -303,28 +361,30 @@ export default function ShopScreen() {
       },
       {
         label: 'In stock',
-        value: `${products.length}`,
+        value: `${visibleProducts.length}`,
       },
     ],
-    [activeCategory, activeStore, categories.length, products.length, stores.length]
+    [activeCategory, activeStore, categories.length, stores.length, visibleProducts.length]
   );
 
   const listItems = useMemo<ShopListItem[]>(() => {
-    const items: ShopListItem[] = [{ key: 'sticky-search', type: 'sticky-search' }];
+    const items: ShopListItem[] = [];
 
-    if (!hasActiveSearch) {
+    if (!hasActiveSearch && !showOnlyFavorites) {
       items.push({ key: 'categories', type: 'categories' });
     }
 
-    if (!selectedCategoryId && !hasActiveSearch) {
+    if (!selectedCategoryId && !hasActiveSearch && !showOnlyFavorites) {
       items.push({ key: 'most-shopped', type: 'most-shopped' });
     }
 
     items.push({ key: 'products-header', type: 'products-header' });
-    items.push(...products.map((product) => ({ key: `product-${product.id}` as const, type: 'product' as const, product })));
+    items.push(
+      ...visibleProducts.map((product) => ({ key: `product-${product.id}` as const, type: 'product' as const, product }))
+    );
 
     return items;
-  }, [hasActiveSearch, products, selectedCategoryId]);
+  }, [hasActiveSearch, selectedCategoryId, showOnlyFavorites, visibleProducts]);
 
   if (loading) {
     return <LoadingScreen label="Loading products..." />;
@@ -334,63 +394,187 @@ export default function ShopScreen() {
     return <Redirect href={getHomeRouteForRole(role)} />;
   }
 
+  const compactHeaderStart = Math.max(heroHeight + filterHeight - 140, 260);
+  const compactHeaderEnd = compactHeaderStart + 72;
+  const compactHeaderOpacity = scrollY.interpolate({
+    inputRange: [compactHeaderStart, compactHeaderEnd],
+    outputRange: [0, 1],
+    extrapolate: 'clamp',
+  });
+  const compactHeaderTranslateY = scrollY.interpolate({
+    inputRange: [compactHeaderStart, compactHeaderEnd],
+    outputRange: [-20, 0],
+    extrapolate: 'clamp',
+  });
+
+  const listHeader = (
+    <View style={styles.headerWrap}>
+      <View
+        style={styles.heroCard}
+        onLayout={(event) => setHeroHeight(event.nativeEvent.layout.height + 16)}
+      >
+        <Text style={styles.eyebrow}>Fresh picks nearby</Text>
+        <Text style={styles.title}>Smart Grocery</Text>
+        <Text style={styles.subtitle}>Welcome back, {user?.full_name || user?.email}</Text>
+        <Text style={styles.helperText}>
+          {activeStore
+            ? `Shopping from ${activeStore.name} in ${activeStore.location}`
+            : 'Choose a preferred store to keep your groceries local and fast.'}
+        </Text>
+        <View style={styles.heroFooter}>
+          <Text style={styles.heroFooterText}>
+            {activeCategory ? `Browsing ${activeCategory.name}` : 'Browse by category or start with the most shopped items below.'}
+          </Text>
+        </View>
+        <View style={styles.heroStatsRow}>
+          {heroStats.map((stat) => (
+            <View key={stat.label} style={styles.heroStatCard}>
+              <Text style={styles.heroStatLabel}>{stat.label}</Text>
+              <Text style={styles.heroStatValue} numberOfLines={1}>
+                {stat.value}
+              </Text>
+            </View>
+          ))}
+        </View>
+      </View>
+
+      <View
+        style={styles.filterCardShell}
+        onLayout={(event) => setFilterHeight(event.nativeEvent.layout.height + 20)}
+      >
+        <View style={styles.filterCard}>
+          <Text style={styles.filterEyebrow}>CURATE YOUR BASKET</Text>
+          <Text style={styles.sectionTitle}>Search and store</Text>
+          <Text style={styles.filterHint}>
+            Search quickly, then lock in the right store before you keep browsing.
+          </Text>
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search groceries"
+            value={searchTerm}
+            onChangeText={(value) => {
+              setSearchTerm(value);
+
+              if (!value.trim()) {
+                fetchShopData(selectedStoreId, selectedCategoryId, '', { jumpToResults: false });
+                flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+              }
+            }}
+            onSubmitEditing={submitSearch}
+            returnKeyType="search"
+          />
+          {hasActiveSearch ? (
+            <View style={styles.searchBanner}>
+              <Text style={styles.searchBannerLabel}>Search active</Text>
+              <Text style={styles.searchBannerText} numberOfLines={2}>
+                Showing results for: {searchTerm.trim()}
+              </Text>
+            </View>
+          ) : null}
+          <Text style={styles.filterLabel}>Preferred store {savingStore ? '(saving...)' : ''}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+            {[{ id: -1, name: 'All stores', location: '' }, ...stores].map((storeItem) => {
+              const isAllStores = storeItem.id === -1;
+              const isActive = isAllStores ? selectedStoreId === null : selectedStoreId === storeItem.id;
+
+              return (
+                <TouchableOpacity
+                  key={storeItem.id}
+                  style={[styles.chip, isActive && styles.chipActive]}
+                  onPress={() => savePreferredStore(isAllStores ? null : storeItem.id)}
+                >
+                  <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{storeItem.name}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <TouchableOpacity
+            style={[styles.favoriteShortcut, showOnlyFavorites && styles.favoriteShortcutActive]}
+            onPress={async () => {
+              await triggerLightHaptic();
+              setShowOnlyFavorites((current) => !current);
+            }}
+          >
+            <View style={[styles.favoriteShortcutIconWrap, showOnlyFavorites && styles.favoriteShortcutIconWrapActive]}>
+              <Ionicons name={showOnlyFavorites ? 'heart' : 'heart-outline'} size={18} color="#DC2626" />
+            </View>
+            <View style={styles.favoriteShortcutText}>
+              <Text style={styles.favoriteShortcutTitle}>Favorites ({favoriteIds.length})</Text>
+              <Text style={styles.favoriteShortcutMeta}>
+                {showOnlyFavorites ? 'Showing only hearted products' : 'Tap to browse the items you love'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <FlatList
+      <Animated.View
+        pointerEvents="box-none"
+        style={[
+          styles.compactHeaderWrap,
+          {
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            opacity: compactHeaderOpacity,
+            transform: [{ translateY: compactHeaderTranslateY }],
+          },
+        ]}
+      >
+        <View style={styles.compactHeaderCard}>
+          <View style={styles.compactHeaderTopRow}>
+            <View style={styles.compactHeaderText}>
+              <Text style={styles.compactHeaderTitle}>Search and store</Text>
+              <Text style={styles.compactHeaderMeta}>
+                {activeStoreLabel} • {products.length} items
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.compactStoreChip}
+              onPress={() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true })}
+            >
+              <Text style={styles.compactStoreChipText}>{activeStoreLabel}</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.compactActionsRow}>
+            <TouchableOpacity
+              style={[styles.compactFavoriteChip, showOnlyFavorites && styles.compactFavoriteChipActive]}
+              onPress={async () => {
+                await triggerLightHaptic();
+                setShowOnlyFavorites((current) => !current);
+              }}
+            >
+              <Ionicons name={showOnlyFavorites ? 'heart' : 'heart-outline'} size={14} color="#DC2626" />
+              <Text style={styles.compactFavoriteChipText}>Favorites ({favoriteIds.length})</Text>
+            </TouchableOpacity>
+          </View>
+          <TextInput
+            style={styles.compactSearchInput}
+            placeholder="Search groceries"
+            value={searchTerm}
+            onChangeText={(value) => {
+              setSearchTerm(value);
+
+              if (!value.trim()) {
+                fetchShopData(selectedStoreId, selectedCategoryId, '', { jumpToResults: false });
+              }
+            }}
+            onSubmitEditing={submitSearch}
+            returnKeyType="search"
+          />
+        </View>
+      </Animated.View>
+
+      <Animated.FlatList
         ref={flatListRef}
         data={listItems}
         keyExtractor={(item) => item.key}
         renderItem={({ item }) => {
-          if (item.type === 'sticky-search') {
-            return (
-              <View style={styles.filterCardStickyShell}>
-                <View style={styles.filterCard}>
-                  <Text style={styles.sectionTitle}>Search and store</Text>
-                  <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search groceries"
-                    value={searchTerm}
-                    onChangeText={(value) => {
-                      setSearchTerm(value);
-
-                      if (!value.trim()) {
-                        fetchShopData(selectedStoreId, selectedCategoryId, '', { jumpToResults: false });
-                        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-                      }
-                    }}
-                    onSubmitEditing={submitSearch}
-                    returnKeyType="search"
-                  />
-                  {hasActiveSearch ? (
-                    <View style={styles.searchBanner}>
-                      <Text style={styles.searchBannerLabel}>Search active</Text>
-                      <Text style={styles.searchBannerText} numberOfLines={2}>
-                        Showing results for: {searchTerm.trim()}
-                      </Text>
-                    </View>
-                  ) : null}
-                  <Text style={styles.filterLabel}>Preferred store {savingStore ? '(saving...)' : ''}</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                    {[{ id: -1, name: 'All stores', location: '' }, ...stores].map((storeItem) => {
-                      const isAllStores = storeItem.id === -1;
-                      const isActive = isAllStores ? selectedStoreId === null : selectedStoreId === storeItem.id;
-
-                      return (
-                        <TouchableOpacity
-                          key={storeItem.id}
-                          style={[styles.chip, isActive && styles.chipActive]}
-                          onPress={() => savePreferredStore(isAllStores ? null : storeItem.id)}
-                        >
-                          <Text style={[styles.chipText, isActive && styles.chipTextActive]}>{storeItem.name}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
-              </View>
-            );
-          }
-
           if (item.type === 'categories') {
             return (
               <View style={styles.headerWrap}>
@@ -446,23 +630,34 @@ export default function ShopScreen() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.popularRow}>
                     {mostShoppedProducts.length ? (
                       mostShoppedProducts.map((popularItem) => (
-                        <TouchableOpacity
-                          key={popularItem.id}
-                          style={styles.popularCard}
-                          onPress={() => router.push(`/product/${popularItem.id}`)}
-                        >
-                          <ProductArtwork
-                            imageUrl={popularItem.image_url}
-                            categoryName={popularItem.category?.name}
-                            productName={popularItem.name}
-                            variant="mini"
-                          />
-                          <Text style={styles.popularName} numberOfLines={1}>
-                            {popularItem.name}
-                          </Text>
-                          <Text style={styles.popularCategory}>{popularItem.category?.name || 'Groceries'}</Text>
-                          <Text style={styles.popularPrice}>{formatCedi(popularItem.price)}</Text>
-                        </TouchableOpacity>
+                        <View key={popularItem.id} style={styles.popularCard}>
+                          <TouchableOpacity
+                            style={[
+                              styles.popularFavoriteButton,
+                              favoriteIds.includes(popularItem.id) && styles.popularFavoriteButtonActive,
+                            ]}
+                            onPress={() => toggleFavorite(popularItem)}
+                          >
+                            <Ionicons
+                              name={favoriteIds.includes(popularItem.id) ? 'heart' : 'heart-outline'}
+                              size={16}
+                              color={favoriteIds.includes(popularItem.id) ? '#DC2626' : '#94A3B8'}
+                            />
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={() => router.push(`/product/${popularItem.id}`)}>
+                            <ProductArtwork
+                              imageUrl={popularItem.image_url}
+                              categoryName={popularItem.category?.name}
+                              productName={popularItem.name}
+                              variant="mini"
+                            />
+                            <Text style={styles.popularName} numberOfLines={1}>
+                              {popularItem.name}
+                            </Text>
+                            <Text style={styles.popularCategory}>{popularItem.category?.name || 'Groceries'}</Text>
+                            <Text style={styles.popularPrice}>{formatCedi(popularItem.price)}</Text>
+                          </TouchableOpacity>
+                        </View>
                       ))
                     ) : (
                       <Text style={styles.emptyPopularText}>No purchase data yet.</Text>
@@ -481,19 +676,32 @@ export default function ShopScreen() {
                   setProductsSectionOffset(event.nativeEvent.layout.y);
                 }}
               >
-                <View>
+                <View style={styles.productsHeaderContent}>
                   <Text style={styles.productsTitle}>
-                    {hasActiveSearch
+                    {showOnlyFavorites
+                      ? 'Your Favorites'
+                      : hasActiveSearch
                       ? `Search results for "${searchTerm.trim()}"`
                       : activeCategory
                         ? activeCategory.name
                         : 'Available Products'}
                   </Text>
                   <Text style={styles.productsMeta}>
-                    {products.length} {products.length === 1 ? 'item' : 'items'} ready to shop
+                    {visibleProducts.length} {visibleProducts.length === 1 ? 'item' : 'items'} ready to shop
                   </Text>
+                  {showOnlyFavorites ? (
+                    <Text style={styles.searchResultsMeta}>
+                      Hearted products saved for quick shopping.
+                    </Text>
+                  ) : null}
                   {hasActiveSearch ? (
                     <Text style={styles.searchResultsMeta}>Results narrowed by your current search.</Text>
+                  ) : null}
+                  {!hasActiveSearch && (activeStore || activeCategory) ? (
+                    <View style={styles.contextPillsRow}>
+                      {activeStore ? <Text style={styles.contextPill}>{activeStore.name}</Text> : null}
+                      {activeCategory ? <Text style={styles.contextPill}>{activeCategory.name}</Text> : null}
+                    </View>
                   ) : null}
                 </View>
               </View>
@@ -505,13 +713,20 @@ export default function ShopScreen() {
               item={item.product}
               desiredQuantity={desiredQuantities[item.product.id] ?? 1}
               submittingId={submittingId}
+              isFavorite={favoriteIds.includes(item.product.id)}
               onChangeDesiredQuantity={changeDesiredQuantity}
               onAddToCart={addToCart}
+              onToggleFavorite={toggleFavorite}
             />
           );
         }}
         contentContainerStyle={styles.listContent}
-        stickyHeaderIndices={[1]}
+        ListHeaderComponent={listHeader}
+        onScroll={Animated.event(
+          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+          { useNativeDriver: true }
+        )}
+        scrollEventThrottle={16}
         onScrollToIndexFailed={({ index, averageItemLength }) => {
           flatListRef.current?.scrollToOffset({
             offset: Math.max(0, index * averageItemLength),
@@ -535,42 +750,35 @@ export default function ShopScreen() {
             }}
           />
         }
-        ListHeaderComponent={
-          <View style={styles.headerWrap}>
-            <View style={styles.heroCard}>
-              <Text style={styles.eyebrow}>Fresh picks nearby</Text>
-              <Text style={styles.title}>Smart Grocery</Text>
-              <Text style={styles.subtitle}>Welcome back, {user?.full_name || user?.email}</Text>
-              <Text style={styles.helperText}>
-                {activeStore
-                  ? `Shopping from ${activeStore.name} in ${activeStore.location}`
-                  : 'Choose a preferred store to keep your groceries local and fast.'}
-              </Text>
-              <View style={styles.heroFooter}>
-                <Text style={styles.heroFooterText}>
-                  {activeCategory ? `Browsing ${activeCategory.name}` : 'Browse by category or start with the most shopped items below.'}
-                </Text>
-              </View>
-              <View style={styles.heroStatsRow}>
-                {heroStats.map((stat) => (
-                  <View key={stat.label} style={styles.heroStatCard}>
-                    <Text style={styles.heroStatLabel}>{stat.label}</Text>
-                    <Text style={styles.heroStatValue} numberOfLines={1}>
-                      {stat.value}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-        }
         ListEmptyComponent={
-          <View style={styles.centerContainer}>
-            <Text style={styles.emptyTitle}>No products available right now.</Text>
-            <Text style={styles.emptyText}>
-              Try another category, another store, or clear the search to see more products.
-            </Text>
-          </View>
+          <View />
+        }
+        ListFooterComponent={
+          visibleProducts.length ? null : (
+            <View style={styles.centerContainer}>
+              <Text style={styles.emptyTitle}>
+                {showOnlyFavorites ? 'No favorites to show yet.' : 'No products available right now.'}
+              </Text>
+              <Text style={styles.emptyText}>
+                {showOnlyFavorites
+                  ? favoriteIds.length
+                    ? 'No favorite items match the store, category, or search filters you have active.'
+                    : 'Items you love will appear here after you tap the heart on a product.'
+                  : 'Try another category, another store, or clear the search to see more products.'}
+              </Text>
+              {showOnlyFavorites ? (
+                <TouchableOpacity
+                  style={styles.emptyActionButton}
+                  onPress={async () => {
+                    await triggerLightHaptic();
+                    setShowOnlyFavorites(false);
+                  }}
+                >
+                  <Text style={styles.emptyActionButtonText}>Show all products</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          )
         }
       />
     </SafeAreaView>
@@ -590,13 +798,86 @@ const styles = StyleSheet.create({
   headerWrap: {
     gap: 16,
   },
-  filterCardStickyShell: {
+  compactHeaderWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
     backgroundColor: '#F6F6F0',
-    paddingHorizontal: 16,
-    paddingTop: 4,
-    paddingBottom: 18,
-    marginBottom: 4,
-    zIndex: 2,
+    zIndex: 20,
+  },
+  compactHeaderCard: {
+    backgroundColor: 'rgba(255,255,255,0.97)',
+    borderRadius: 22,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  compactHeaderTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  compactHeaderText: {
+    flex: 1,
+    gap: 2,
+  },
+  compactHeaderTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  compactHeaderMeta: {
+    color: '#64748B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  compactStoreChip: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  compactStoreChipText: {
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  compactActionsRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+  },
+  compactFavoriteChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFF1F2',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  compactFavoriteChipActive: {
+    backgroundColor: '#FFE4E6',
+  },
+  compactFavoriteChipText: {
+    color: '#9F1239',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  compactSearchInput: {
+    marginTop: 12,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
   },
   heroCard: {
     backgroundColor: '#0F5A35',
@@ -663,25 +944,41 @@ const styles = StyleSheet.create({
   },
   filterCard: {
     backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 16,
-    shadowColor: '#0F172A',
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-    elevation: 3,
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+  filterCardShell: {
+    marginBottom: 4,
+  },
+  filterEyebrow: {
+    color: '#7A6A44',
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+    fontSize: 11,
+    fontWeight: '800',
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: '#0F172A',
-    marginBottom: 10,
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  filterHint: {
+    color: '#64748B',
+    lineHeight: 19,
+    marginBottom: 12,
   },
   searchInput: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 14,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -729,6 +1026,43 @@ const styles = StyleSheet.create({
   chipTextActive: {
     color: '#fff',
   },
+  favoriteShortcut: {
+    marginTop: 16,
+    backgroundColor: '#FFF1F2',
+    borderRadius: 18,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  favoriteShortcutActive: {
+    backgroundColor: '#FFE4E6',
+  },
+  favoriteShortcutIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  favoriteShortcutIconWrapActive: {
+    backgroundColor: '#FEE2E2',
+  },
+  favoriteShortcutText: {
+    flex: 1,
+    gap: 2,
+  },
+  favoriteShortcutTitle: {
+    color: '#9F1239',
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  favoriteShortcutMeta: {
+    color: '#881337',
+    fontSize: 12,
+    fontWeight: '600',
+  },
   sectionBlock: {
     gap: 12,
   },
@@ -757,6 +1091,11 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 16,
     borderWidth: 2,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.03,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 1,
   },
   categoryEmojiBadge: {
     width: 48,
@@ -783,10 +1122,34 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   popularCard: {
+    position: 'relative',
     width: 160,
     backgroundColor: '#fff',
     borderRadius: 22,
-    padding: 10,
+    padding: 12,
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+  popularFavoriteButton: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    zIndex: 2,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  popularFavoriteButtonActive: {
+    backgroundColor: '#FFF1F2',
+    borderColor: '#FECACA',
   },
   popularName: {
     marginTop: 10,
@@ -812,6 +1175,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     paddingTop: 4,
   },
+  productsHeaderContent: {
+    backgroundColor: '#FFFDF7',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#F2E8D1',
+  },
   productsTitle: {
     fontSize: 22,
     fontWeight: '800',
@@ -826,13 +1197,56 @@ const styles = StyleSheet.create({
     color: '#4D7C0F',
     fontWeight: '600',
   },
+  contextPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 10,
+  },
+  contextPill: {
+    backgroundColor: '#F3E8D7',
+    color: '#7C5C1B',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontWeight: '700',
+    fontSize: 12,
+  },
   productCard: {
     backgroundColor: '#fff',
     borderRadius: 24,
     overflow: 'hidden',
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
+  },
+  productArtworkWrap: {
+    position: 'relative',
+  },
+  productImageFavoriteButton: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 2,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.94)',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  productImageFavoriteButtonActive: {
+    backgroundColor: '#FFF1F2',
+    borderColor: '#FECACA',
   },
   productContent: {
     padding: 16,
+    gap: 10,
   },
   productTopRow: {
     flexDirection: 'row',
@@ -864,18 +1278,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  priceBadge: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    alignSelf: 'flex-start',
+  },
   productPrice: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     color: '#16A34A',
   },
   stockText: {
-    marginTop: 12,
     color: '#64748B',
     fontWeight: '600',
   },
   productBottomRow: {
-    marginTop: 14,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -885,6 +1304,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
   },
   quantityButton: {
     width: 34,
@@ -911,11 +1334,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   addButton: {
-    marginTop: 16,
+    marginTop: 4,
     backgroundColor: '#16A34A',
-    paddingVertical: 13,
-    borderRadius: 14,
+    paddingVertical: 14,
+    borderRadius: 16,
     alignItems: 'center',
+  },
+  addButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   addButtonText: {
     color: '#fff',
@@ -938,5 +1366,16 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
     color: '#64748B',
+  },
+  emptyActionButton: {
+    marginTop: 14,
+    backgroundColor: '#16A34A',
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  emptyActionButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
 });

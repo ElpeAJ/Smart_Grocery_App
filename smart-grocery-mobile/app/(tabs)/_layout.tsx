@@ -4,11 +4,11 @@ import { Redirect, Tabs, usePathname } from 'expo-router';
 
 import api from '../../src/api/client';
 import { useAuth } from '../../src/context/AuthContext';
-import type { Delivery, Notification, Order } from '../../src/types/api';
+import type { Cart, Delivery, Notification, Order } from '../../src/types/api';
 import {
+  canAccessAdminWorkspace,
   canHandleDeliveries,
   canHandleOperations,
-  canManageCatalog,
   canViewReports,
   isCustomerRole,
 } from '../../src/utils/roles';
@@ -20,9 +20,19 @@ export default function TabsLayout() {
   const showCustomerTabs = isCustomerRole(role);
   const showOperations = canHandleOperations(role);
   const showDeliveries = canHandleDeliveries(role);
-  const showAdmin = canManageCatalog(role);
+  const showAdmin = canAccessAdminWorkspace(role);
   const showReports = canViewReports(role);
+  const visibleTabCount =
+    (showCustomerTabs ? 3 : 0) +
+    (showOperations ? 1 : 0) +
+    (showDeliveries ? 1 : 0) +
+    1 +
+    (showReports ? 1 : 0) +
+    (showAdmin ? 1 : 0) +
+    1;
+  const useCompactTabs = visibleTabCount >= 6;
   const [ordersBadgeCount, setOrdersBadgeCount] = useState(0);
+  const [cartBadgeCount, setCartBadgeCount] = useState(0);
   const [unreadAlertsCount, setUnreadAlertsCount] = useState(0);
   const [operationsBadgeCount, setOperationsBadgeCount] = useState(0);
   const [deliveriesBadgeCount, setDeliveriesBadgeCount] = useState(0);
@@ -55,6 +65,7 @@ export default function TabsLayout() {
   const loadTabBadges = useCallback(async () => {
     if (!user) {
       setOrdersBadgeCount(0);
+      setCartBadgeCount(0);
       setUnreadAlertsCount(0);
       setOperationsBadgeCount(0);
       setDeliveriesBadgeCount(0);
@@ -65,6 +76,7 @@ export default function TabsLayout() {
       const requests: Promise<any>[] = [api.get<Notification[]>('/notifications/')];
 
       if (showCustomerTabs) {
+        requests.push(api.get<Cart>('/cart/'));
         requests.push(api.get<Order[]>('/orders/my-orders'));
       }
 
@@ -83,6 +95,10 @@ export default function TabsLayout() {
       let responseIndex = 1;
 
       if (showCustomerTabs) {
+        const cart = responses[responseIndex].data as Cart;
+        responseIndex += 1;
+        setCartBadgeCount(cart.items.reduce((sum, item) => sum + item.quantity, 0));
+
         const customerOrders = responses[responseIndex].data as Order[];
         responseIndex += 1;
 
@@ -90,6 +106,7 @@ export default function TabsLayout() {
           customerOrders.filter((order) => !['delivered', 'cancelled'].includes(order.status)).length
         );
       } else {
+        setCartBadgeCount(0);
         setOrdersBadgeCount(0);
       }
 
@@ -122,6 +139,7 @@ export default function TabsLayout() {
       }
     } catch {
       if (!showCustomerTabs) {
+        setCartBadgeCount(0);
         setOrdersBadgeCount(0);
       }
       setUnreadAlertsCount(0);
@@ -161,21 +179,37 @@ export default function TabsLayout() {
         tabBarActiveTintColor: '#16A34A',
         tabBarInactiveTintColor: '#94A3B8',
         tabBarStyle: {
-          height: 68,
-          paddingTop: 6,
-          paddingBottom: 8,
+          height: useCompactTabs ? 64 : 68,
+          paddingTop: useCompactTabs ? 4 : 6,
+          paddingBottom: useCompactTabs ? 6 : 8,
+        },
+        tabBarItemStyle: {
+          paddingHorizontal: useCompactTabs ? 0 : 2,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: useCompactTabs ? 10 : 12,
           fontWeight: '700',
         },
+        tabBarLabelPosition: 'below-icon',
+        tabBarAllowFontScaling: false,
         tabBarIcon: ({ color, focused, size }) => (
-          <Ionicons name={getTabIconName(route.name, focused)} size={size} color={color} />
+          <Ionicons
+            name={getTabIconName(route.name, focused)}
+            size={useCompactTabs ? Math.max(size - 2, 18) : size}
+            color={color}
+          />
         ),
       })}
     >
       <Tabs.Screen name="index" options={{ title: 'Shop', href: showCustomerTabs ? undefined : null }} />
-      <Tabs.Screen name="cart" options={{ title: 'Cart', href: showCustomerTabs ? undefined : null }} />
+      <Tabs.Screen
+        name="cart"
+        options={{
+          title: 'Cart',
+          href: showCustomerTabs ? undefined : null,
+          tabBarBadge: cartBadgeCount > 0 ? cartBadgeCount : undefined,
+        }}
+      />
       <Tabs.Screen
         name="orders"
         options={{
@@ -187,7 +221,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="operations"
         options={{
-          title: 'Operations',
+          title: useCompactTabs ? 'Ops' : 'Operations',
           href: showOperations ? undefined : null,
           tabBarBadge: operationsBadgeCount > 0 ? operationsBadgeCount : undefined,
         }}
@@ -195,16 +229,21 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="deliveries"
         options={{
-          title: 'Deliveries',
+          title: useCompactTabs ? 'Delivery' : 'Deliveries',
           href: showDeliveries ? undefined : null,
           tabBarBadge: deliveriesBadgeCount > 0 ? deliveriesBadgeCount : undefined,
         }}
       />
+      <Tabs.Screen name="order-chat/[orderId]" options={{ href: null }} />
+      <Tabs.Screen name="delivery-map/[deliveryId]" options={{ href: null }} />
       <Tabs.Screen
         name="notifications"
         options={{ title: 'Alerts', tabBarBadge: unreadAlertsCount > 0 ? unreadAlertsCount : undefined }}
       />
-      <Tabs.Screen name="reports" options={{ title: 'Reports', href: showReports ? undefined : null }} />
+      <Tabs.Screen
+        name="reports"
+        options={{ title: useCompactTabs ? 'Report' : 'Reports', href: showReports ? undefined : null }}
+      />
       <Tabs.Screen name="admin" options={{ title: 'Admin', href: showAdmin ? undefined : null }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>

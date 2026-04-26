@@ -57,6 +57,12 @@ def update_my_profile(
             profile_data.delivery_address.strip() if profile_data.delivery_address else None
         )
 
+    if "delivery_latitude" in provided_fields:
+        profile.delivery_latitude = profile_data.delivery_latitude
+
+    if "delivery_longitude" in provided_fields:
+        profile.delivery_longitude = profile_data.delivery_longitude
+
     db.commit()
     db.refresh(profile)
     return profile

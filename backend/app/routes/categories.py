@@ -17,7 +17,7 @@ def get_categories(db: Session = Depends(get_db)):
 def create_category(
     payload: schemas.ProductCategoryCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     existing = db.query(models.ProductCategory).filter(models.ProductCategory.name == payload.name.strip()).first()
     if existing:
@@ -35,7 +35,7 @@ def rename_category(
     category_id: int,
     payload: schemas.ProductCategoryRename,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     category = db.query(models.ProductCategory).filter(models.ProductCategory.id == category_id).first()
     if not category:

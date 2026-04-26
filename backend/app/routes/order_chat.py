@@ -17,13 +17,20 @@ def can_user_access_order_chat(order: models.Order, current_user: models.User) -
 
     if current_user.role == "driver":
         return (
-            order.status == "out_for_delivery"
+            order.status in {"out_for_delivery", "delivered"}
             and order.delivery is not None
             and order.delivery.driver_id == current_user.id
         )
 
     if current_user.role == "staff":
-        return order.status != "out_for_delivery"
+        return order.status in {
+            "pending",
+            "accepted",
+            "picking",
+            "awaiting_review",
+            "delivered",
+            "cancelled",
+        }
 
     return current_user.role in {"manager", "admin"}
 
@@ -95,6 +102,16 @@ def build_thread_summary(
     unread_count = sum(
         1 for message in messages if message.sender_user_id != current_user.id and not message.is_read
     )
+    return schemas.OrderChatSummaryResponse(
+        order_id=thread.order_id,
+        has_messages=bool(messages),
+        unread_count=unread_count,
+        message_count=len(messages),
+        last_message_preview=(last_message.message[:80] if last_message else None),
+        last_sender_name=(last_message.sender_name if last_message else None),
+        last_sender_role=(last_message.sender_role if last_message else None),
+        last_message_at=(last_message.created_at if last_message else None),
+    )
 
 
 def build_thread_response(
@@ -113,17 +130,6 @@ def build_thread_response(
         created_at=thread.created_at,
         updated_at=thread.updated_at,
         messages=thread.messages,
-    )
-
-    return schemas.OrderChatSummaryResponse(
-        order_id=thread.order_id,
-        has_messages=bool(messages),
-        unread_count=unread_count,
-        message_count=len(messages),
-        last_message_preview=(last_message.message[:80] if last_message else None),
-        last_sender_name=(last_message.sender_name if last_message else None),
-        last_sender_role=(last_message.sender_role if last_message else None),
-        last_message_at=(last_message.created_at if last_message else None),
     )
 
 

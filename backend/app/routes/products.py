@@ -15,7 +15,7 @@ router = APIRouter(prefix="/products", tags=["Products"])
 def create_product(
     product: schemas.ProductCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     if product.store_id is None:
         raise HTTPException(status_code=400, detail="Products must be assigned to a store")
@@ -122,7 +122,7 @@ def update_product_category(
     product_id: int,
     payload: schemas.ProductCategoryUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -153,7 +153,7 @@ def update_product_price(
     product_id: int,
     payload: schemas.ProductPriceUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -170,7 +170,7 @@ def update_product_store(
     product_id: int,
     payload: schemas.ProductStoreUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -191,7 +191,7 @@ def update_product_image(
     product_id: int,
     payload: schemas.ProductImageUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:

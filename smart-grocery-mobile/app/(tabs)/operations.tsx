@@ -53,8 +53,8 @@ export default function OperationsScreen() {
   const [busyItemId, setBusyItemId] = useState<number | null>(null);
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
 
-  const canSubmitForReview = role === 'staff' || role === 'admin' || role === 'manager';
-  const canReleaseToDelivery = role === 'admin' || role === 'manager';
+  const canSubmitForReview = role === 'staff' || role === 'manager';
+  const canReleaseToDelivery = role === 'manager';
 
   const loadOperations = useCallback(async () => {
     try {
@@ -166,6 +166,9 @@ export default function OperationsScreen() {
     return <Redirect href={getHomeRouteForRole(role)} />;
   }
 
+  const pendingCount = orders.filter((order) => ['pending', 'accepted', 'picking'].includes(order.status)).length;
+  const reviewCount = orders.filter((order) => order.status === 'awaiting_review').length;
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
@@ -183,10 +186,24 @@ export default function OperationsScreen() {
         }
         ListHeaderComponent={
           <View style={styles.header}>
-            <Text style={styles.title}>Operations Queue</Text>
-            <Text style={styles.subtitle}>
-              Pick orders item by item, submit completed picks for review, and let managers release approved orders to delivery.
-            </Text>
+            <View style={styles.heroCard}>
+              <Text style={styles.eyebrow}>FULFILLMENT WORKFLOW</Text>
+              <Text style={styles.title}>Operations Queue</Text>
+              <Text style={styles.subtitle}>
+                Pick orders item by item, submit completed picks for review, and let managers release approved orders to delivery.
+              </Text>
+              <View style={styles.heroStatsRow}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{pendingCount}</Text>
+                  <Text style={styles.heroStatLabel}>Active picks</Text>
+                </View>
+                <View style={styles.heroDivider} />
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>{reviewCount}</Text>
+                  <Text style={styles.heroStatLabel}>Awaiting review</Text>
+                </View>
+              </View>
+            </View>
           </View>
         }
         ListEmptyComponent={
@@ -329,7 +346,7 @@ export default function OperationsScreen() {
 
                   {isAwaitingReview && role === 'staff' ? (
                     <Text style={styles.readyText}>
-                      Waiting for manager or admin approval before driver assignment.
+                      Waiting for manager approval before driver assignment.
                     </Text>
                   ) : null}
                 </View>
@@ -345,36 +362,87 @@ export default function OperationsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F9FC',
+    backgroundColor: '#F6F6F0',
   },
   content: {
     padding: 16,
-    gap: 12,
-    paddingBottom: 28,
+    gap: 14,
+    paddingBottom: 32,
   },
   header: {
-    paddingTop: 20,
-    paddingBottom: 8,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  heroCard: {
+    backgroundColor: '#1F5C3F',
+    borderRadius: 28,
+    padding: 22,
+    gap: 12,
+    shadowColor: '#163C2C',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  eyebrow: {
+    color: '#CFE9D8',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
   },
   title: {
     fontSize: 28,
-    fontWeight: '700',
-    color: '#0F172A',
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   subtitle: {
     marginTop: 6,
     fontSize: 15,
-    color: '#475569',
+    color: '#D7E9DE',
+    lineHeight: 21,
+  },
+  heroStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    backgroundColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 22,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  heroStat: {
+    flex: 1,
+    gap: 4,
+  },
+  heroStatValue: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  heroStatLabel: {
+    color: '#CFE9D8',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  heroDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: 'rgba(255,255,255,0.14)',
   },
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 4,
   },
   readyCard: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: '#F8FBF8',
     borderWidth: 1,
-    borderColor: '#CBD5E1',
+    borderColor: '#D6E7DA',
   },
   cardHeader: {
     flexDirection: 'row',
@@ -386,8 +454,8 @@ const styles = StyleSheet.create({
   },
   orderTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    color: '#1E3A8A',
+    fontWeight: '800',
+    color: '#1F4F7A',
   },
   metaText: {
     marginTop: 6,
@@ -397,8 +465,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   totalText: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
     color: '#16A34A',
   },
   expandText: {
@@ -413,7 +481,7 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#E2E8F0',
-    paddingTop: 14,
+    paddingTop: 16,
   },
   sectionTitle: {
     fontWeight: '700',
@@ -426,6 +494,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     marginBottom: 12,
+    backgroundColor: '#FAFBFC',
+    borderRadius: 18,
+    padding: 12,
   },
   itemTextWrap: {
     flex: 1,
@@ -445,6 +516,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 14,
     paddingVertical: 10,
+    backgroundColor: '#FFFFFF',
   },
   pickButtonActive: {
     backgroundColor: '#DCFCE7',
@@ -459,6 +531,7 @@ const styles = StyleSheet.create({
   progressText: {
     marginTop: 6,
     color: '#475569',
+    fontWeight: '600',
   },
   chatButton: {
     marginTop: 12,
@@ -497,7 +570,7 @@ const styles = StyleSheet.create({
   readyBanner: {
     marginTop: 12,
     backgroundColor: '#DCFCE7',
-    borderRadius: 12,
+    borderRadius: 16,
     paddingHorizontal: 14,
     paddingVertical: 12,
   },
@@ -508,8 +581,8 @@ const styles = StyleSheet.create({
   releaseButton: {
     marginTop: 14,
     backgroundColor: '#1D4ED8',
-    paddingVertical: 13,
-    borderRadius: 12,
+    paddingVertical: 15,
+    borderRadius: 16,
     alignItems: 'center',
   },
   releaseButtonText: {
@@ -523,9 +596,14 @@ const styles = StyleSheet.create({
   },
   emptyCard: {
     backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 24,
+    padding: 24,
     alignItems: 'center',
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 3,
   },
   emptyTitle: {
     fontSize: 16,

@@ -26,6 +26,8 @@ export type UserProfile = {
   user_id: number;
   phone_number: string | null;
   delivery_address: string | null;
+  delivery_latitude: number | null;
+  delivery_longitude: number | null;
   preferred_store_id: number | null;
   preferred_store: Store | null;
 };
@@ -60,6 +62,16 @@ export type OrderItem = {
   is_picked: boolean;
 };
 
+export type OrderReview = {
+  id: number;
+  order_id: number;
+  user_id: number;
+  rating: number;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type Order = {
   id: number;
   user_id: number;
@@ -71,19 +83,29 @@ export type Order = {
   created_at: string;
   items: OrderItem[];
   all_items_picked: boolean;
+  review: OrderReview | null;
 };
 
 export type Delivery = {
   id: number;
   order_id: number;
   driver_id: number | null;
+  customer_id: number | null;
   driver_name: string | null;
   customer_name: string | null;
   store_name: string | null;
   delivery_address: string;
+  delivery_latitude: number | null;
+  delivery_longitude: number | null;
+  driver_latitude: number | null;
+  driver_longitude: number | null;
+  driver_location_updated_at: string | null;
   delivery_window_label: string | null;
   delivery_window_start: string | null;
   delivery_window_end: string | null;
+  driver_assigned_at: string | null;
+  started_at: string | null;
+  delivered_at: string | null;
   status: 'assigned' | 'on_the_way' | 'delivered';
   order_status: Order['status'] | null;
 };
@@ -103,6 +125,7 @@ export type ReportEntry = {
   customer_name: string | null;
   store_id: number | null;
   store_name: string | null;
+  order_status: Order['status'] | null;
   total_amount: number;
   completed_at: string;
   delivery_id: number | null;
@@ -112,6 +135,7 @@ export type ReportEntry = {
   pick_minutes: number | null;
   delivery_minutes: number | null;
   assignment_to_delivery_minutes: number | null;
+  review: OrderReview | null;
 };
 
 export type PickerPerformanceSummary = {
@@ -169,6 +193,9 @@ export type SystemPerformanceSummary = {
 export type ReportSummary = {
   scope: 'system' | 'staff' | 'driver';
   period: ReportPeriod;
+  anchor_date: string;
+  range_start: string;
+  range_end: string;
   completed_orders: number;
   total_revenue: number;
   entries: ReportEntry[];

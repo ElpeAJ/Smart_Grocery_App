@@ -17,7 +17,13 @@ import LoadingScreen from '../../src/components/LoadingScreen';
 import { useAuth } from '../../src/context/AuthContext';
 import type { AppUser, Product, ProductCategory, Store } from '../../src/types/api';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
-import { canManageCatalog, getHomeRouteForRole } from '../../src/utils/roles';
+import {
+  canAccessAdminWorkspace,
+  canManageCatalog,
+  canManageStores,
+  canManageUsersAndRoles,
+  getHomeRouteForRole,
+} from '../../src/utils/roles';
 
 const ROLE_OPTIONS: AppUser['role'][] = ['customer', 'staff', 'manager', 'driver', 'admin'];
 
@@ -71,8 +77,11 @@ export default function AdminScreen() {
   const [focusedCategoryName, setFocusedCategoryName] = useState<string | null>(null);
   const [workspaceOffsetY, setWorkspaceOffsetY] = useState<number | null>(null);
 
-  const canAccessAdmin = canManageCatalog(role);
-  const canManageRoles = role === 'admin';
+  const canAccessAdmin = canAccessAdminWorkspace(role);
+  const canManageCatalogWorkspace = canManageCatalog(role);
+  const canManageStoreRecords = canManageStores(role);
+  const canManageRoles = canManageUsersAndRoles(role);
+  const canViewTeamMembers = role === 'manager' || role === 'admin';
 
   const metrics = useMemo(
     () => [
@@ -175,7 +184,7 @@ export default function AdminScreen() {
         Object.fromEntries(categoriesResponse.data.map((category) => [category.id, category.name]))
       );
 
-      if (canManageRoles) {
+      if (canViewTeamMembers) {
         const usersResponse = await api.get<AppUser[]>('/users/');
         setUsers(usersResponse.data);
       }
@@ -185,7 +194,7 @@ export default function AdminScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [canManageRoles]);
+  }, [canViewTeamMembers]);
 
   useEffect(() => {
     loadCatalog();
@@ -650,10 +659,15 @@ export default function AdminScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerContent}>
-            <Text style={styles.title}>Admin Tools</Text>
-            <Text style={styles.subtitle}>
-              Manage stores, categories, products, stock, pricing, and team roles.
-            </Text>
+            <View style={styles.heroCard}>
+              <Text style={styles.eyebrow}>CONTROL CENTER</Text>
+              <Text style={styles.title}>{role === 'manager' ? 'Manager Workspace' : 'Admin Tools'}</Text>
+              <Text style={styles.subtitle}>
+                {role === 'manager'
+                  ? 'Run catalog, inventory, fulfillment, deliveries, and team oversight for daily store operations.'
+                  : 'Manage stores, users, roles, and system-wide oversight across the platform.'}
+              </Text>
+            </View>
 
             <FlatList
               data={metrics}
@@ -669,13 +683,16 @@ export default function AdminScreen() {
               )}
             />
 
+            {canManageStoreRecords ? (
             <View style={styles.sectionCard}>
               <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('store')}>
-                <View>
+                <View style={styles.sectionHeaderTextWrap}>
                   <Text style={styles.sectionHeaderTitle}>Create Store</Text>
                   <Text style={styles.sectionHeaderHint}>Add a new branch or pickup location.</Text>
                 </View>
-                <Text style={styles.sectionToggle}>{openSections.store ? 'Hide' : 'Open'}</Text>
+                <View style={styles.sectionToggleWrap}>
+                  <Text style={styles.sectionToggle}>{openSections.store ? 'Hide' : 'Open'}</Text>
+                </View>
               </TouchableOpacity>
               {openSections.store ? (
                 <View style={styles.sectionBody}>
@@ -703,14 +720,18 @@ export default function AdminScreen() {
                 </View>
               ) : null}
             </View>
+            ) : null}
 
+            {canManageCatalogWorkspace ? (
             <View style={styles.sectionCard}>
               <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('category')}>
-                <View>
+                <View style={styles.sectionHeaderTextWrap}>
                   <Text style={styles.sectionHeaderTitle}>Manage Categories</Text>
                   <Text style={styles.sectionHeaderHint}>Create new ones or fix spelling mistakes.</Text>
                 </View>
-                <Text style={styles.sectionToggle}>{openSections.category ? 'Hide' : 'Open'}</Text>
+                <View style={styles.sectionToggleWrap}>
+                  <Text style={styles.sectionToggle}>{openSections.category ? 'Hide' : 'Open'}</Text>
+                </View>
               </TouchableOpacity>
               {openSections.category ? (
                 <View style={styles.sectionBody}>
@@ -757,14 +778,18 @@ export default function AdminScreen() {
                 </View>
               ) : null}
             </View>
+            ) : null}
 
+            {canManageCatalogWorkspace ? (
             <View style={styles.sectionCard}>
               <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('product')}>
-                <View>
+                <View style={styles.sectionHeaderTextWrap}>
                   <Text style={styles.sectionHeaderTitle}>Create Product</Text>
                   <Text style={styles.sectionHeaderHint}>Assign a store and category in one step.</Text>
                 </View>
-                <Text style={styles.sectionToggle}>{openSections.product ? 'Hide' : 'Open'}</Text>
+                <View style={styles.sectionToggleWrap}>
+                  <Text style={styles.sectionToggle}>{openSections.product ? 'Hide' : 'Open'}</Text>
+                </View>
               </TouchableOpacity>
               {openSections.product ? (
                 <View style={styles.sectionBody}>
@@ -855,15 +880,24 @@ export default function AdminScreen() {
                 </View>
               ) : null}
             </View>
+            ) : null}
 
-            {canManageRoles ? (
+            {canViewTeamMembers ? (
               <View style={styles.sectionCard}>
                 <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection('roles')}>
-                  <View>
-                    <Text style={styles.sectionHeaderTitle}>Team Roles</Text>
-                    <Text style={styles.sectionHeaderHint}>Review one role group at a time.</Text>
+                  <View style={styles.sectionHeaderTextWrap}>
+                    <Text style={styles.sectionHeaderTitle}>
+                      {canManageRoles ? 'Team Roles' : 'Team Members'}
+                    </Text>
+                    <Text style={styles.sectionHeaderHint}>
+                      {canManageRoles
+                        ? 'Review one role group at a time.'
+                        : 'Review team members by role without changing permissions.'}
+                    </Text>
                   </View>
-                  <Text style={styles.sectionToggle}>{openSections.roles ? 'Hide' : 'Open'}</Text>
+                  <View style={styles.sectionToggleWrap}>
+                    <Text style={styles.sectionToggle}>{openSections.roles ? 'Hide' : 'Open'}</Text>
+                  </View>
                 </TouchableOpacity>
                 {openSections.roles ? (
                   <View style={styles.sectionBody}>
@@ -891,27 +925,34 @@ export default function AdminScreen() {
                         <View key={candidate.id} style={styles.userCard}>
                           <Text style={styles.userName}>{candidate.full_name}</Text>
                           <Text style={styles.userMeta}>{candidate.email}</Text>
-                          <FlatList
-                            data={ROLE_OPTIONS}
-                            horizontal
-                            keyExtractor={(nextRole) => nextRole}
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.rolePicker}
-                            renderItem={({ item }) => {
-                              const active = candidate.role === item;
-                              return (
-                                <TouchableOpacity
-                                  style={[styles.roleChip, active && styles.roleChipActive]}
-                                  onPress={() => updateUserRole(candidate.id, item)}
-                                  disabled={updatingUserId === candidate.id}
-                                >
-                                  <Text style={[styles.roleChipText, active && styles.roleChipTextActive]}>
-                                    {item}
-                                  </Text>
-                                </TouchableOpacity>
-                              );
-                            }}
-                          />
+                          {canManageRoles ? (
+                            <FlatList
+                              data={ROLE_OPTIONS}
+                              horizontal
+                              keyExtractor={(nextRole) => nextRole}
+                              showsHorizontalScrollIndicator={false}
+                              contentContainerStyle={styles.rolePicker}
+                              renderItem={({ item }) => {
+                                const active = candidate.role === item;
+                                return (
+                                  <TouchableOpacity
+                                    style={[styles.roleChip, active && styles.roleChipActive]}
+                                    onPress={() => updateUserRole(candidate.id, item)}
+                                    disabled={updatingUserId === candidate.id}
+                                  >
+                                    <Text style={[styles.roleChipText, active && styles.roleChipTextActive]}>
+                                      {item}
+                                    </Text>
+                                  </TouchableOpacity>
+                                );
+                              }}
+                            />
+                          ) : (
+                            <View style={styles.readOnlyRoleRow}>
+                              <Text style={styles.readOnlyRoleLabel}>Role</Text>
+                              <Text style={styles.readOnlyRoleValue}>{candidate.role}</Text>
+                            </View>
+                          )}
                         </View>
                       ))
                     ) : (
@@ -922,13 +963,16 @@ export default function AdminScreen() {
               </View>
             ) : null}
 
+            {canManageCatalogWorkspace ? (
             <View style={styles.catalogHeader}>
               <Text style={styles.catalogTitle}>Catalog by Category</Text>
               <Text style={styles.catalogMeta}>
                 Start with issues first, then browse categories like a map of the catalog.
               </Text>
             </View>
+            ) : null}
 
+            {canManageCatalogWorkspace ? (
             <View style={styles.attentionCard}>
               <View style={styles.attentionHeader}>
                 <View>
@@ -985,7 +1029,9 @@ export default function AdminScreen() {
                 <Text style={styles.attentionEmptyText}>No urgent catalog issues right now.</Text>
               )}
             </View>
+            ) : null}
 
+            {canManageCatalogWorkspace ? (
             <View style={styles.categoryBrowserCard}>
               <View style={styles.categoryBrowserHeader}>
                 <Text style={styles.categoryBrowserTitle}>Browse Categories</Text>
@@ -1015,7 +1061,9 @@ export default function AdminScreen() {
                 })}
               </View>
             </View>
+            ) : null}
 
+            {canManageCatalogWorkspace ? (
             <View
               style={styles.focusCard}
               onLayout={(event) => setWorkspaceOffsetY(event.nativeEvent.layout.y)}
@@ -1038,6 +1086,7 @@ export default function AdminScreen() {
                 ) : null}
               </View>
             </View>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
@@ -1060,34 +1109,56 @@ export default function AdminScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F7F9FC',
+    backgroundColor: '#F6F6F0',
   },
   listContent: {
     paddingBottom: 28,
   },
   headerContent: {
-    padding: 20,
+    padding: 16,
     gap: 16,
   },
+  heroCard: {
+    backgroundColor: '#1F5C3F',
+    borderRadius: 28,
+    padding: 22,
+    gap: 12,
+    shadowColor: '#163C2C',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6,
+  },
+  eyebrow: {
+    color: '#CFE9D8',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 1.2,
+  },
   title: {
-    marginTop: 12,
     fontSize: 28,
-    fontWeight: '700',
-    color: '#1E3A8A',
+    fontWeight: '800',
+    color: '#FFFFFF',
   },
   subtitle: {
     fontSize: 15,
-    color: '#475569',
+    color: '#D7E9DE',
+    lineHeight: 21,
   },
   metricsRow: {
     gap: 10,
   },
   metricCard: {
-    backgroundColor: '#DBEAFE',
-    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
     paddingVertical: 14,
     paddingHorizontal: 18,
     minWidth: 110,
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
   },
   metricValue: {
     fontSize: 22,
@@ -1101,14 +1172,23 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     backgroundColor: '#fff',
-    borderRadius: 18,
+    borderRadius: 22,
     padding: 16,
+    shadowColor: '#A68E65',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: 16,
+  },
+  sectionHeaderTextWrap: {
+    flex: 1,
+    minWidth: 0,
   },
   sectionHeaderTitle: {
     fontSize: 17,
@@ -1118,6 +1198,16 @@ const styles = StyleSheet.create({
   sectionHeaderHint: {
     marginTop: 4,
     color: '#64748B',
+  },
+  sectionToggleWrap: {
+    minWidth: 68,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: '#EEF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   sectionToggle: {
     color: '#2563EB',
@@ -1236,6 +1326,21 @@ const styles = StyleSheet.create({
   },
   roleChipTextActive: {
     color: '#fff',
+  },
+  readOnlyRoleRow: {
+    marginTop: 10,
+    gap: 4,
+  },
+  readOnlyRoleLabel: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  readOnlyRoleValue: {
+    color: '#0F172A',
+    fontSize: 15,
+    fontWeight: '700',
+    textTransform: 'capitalize',
   },
   emptyGroupText: {
     color: '#64748B',

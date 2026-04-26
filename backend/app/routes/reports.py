@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from statistics import mean
 from typing import Literal, Optional
 
@@ -15,20 +15,42 @@ router = APIRouter(prefix="/reports", tags=["Reports"])
 ReportPeriod = Literal["day", "week", "month", "quarter", "half_year", "year"]
 
 
-def get_period_start(period: ReportPeriod) -> datetime:
-    now = datetime.utcnow()
+def get_period_bounds(period: ReportPeriod, anchor_date: Optional[date] = None) -> tuple[datetime, datetime]:
+    target_date = anchor_date or datetime.utcnow().date()
 
     if period == "day":
-        return now - timedelta(days=1)
-    if period == "week":
-        return now - timedelta(days=7)
-    if period == "month":
-        return now - timedelta(days=30)
-    if period == "quarter":
-        return now - timedelta(days=91)
-    if period == "half_year":
-        return now - timedelta(days=182)
-    return now - timedelta(days=365)
+        start_date = target_date
+        end_date = target_date
+    elif period == "week":
+        start_date = target_date - timedelta(days=target_date.weekday())
+        end_date = start_date + timedelta(days=6)
+    elif period == "month":
+        start_date = target_date.replace(day=1)
+        if start_date.month == 12:
+            end_date = date(start_date.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = date(start_date.year, start_date.month + 1, 1) - timedelta(days=1)
+    elif period == "quarter":
+        quarter_start_month = ((target_date.month - 1) // 3) * 3 + 1
+        start_date = date(target_date.year, quarter_start_month, 1)
+        if quarter_start_month == 10:
+            end_date = date(target_date.year + 1, 1, 1) - timedelta(days=1)
+        else:
+            end_date = date(target_date.year, quarter_start_month + 3, 1) - timedelta(days=1)
+    elif period == "half_year":
+        half_start_month = 1 if target_date.month <= 6 else 7
+        start_date = date(target_date.year, half_start_month, 1)
+        if half_start_month == 1:
+            end_date = date(target_date.year, 7, 1) - timedelta(days=1)
+        else:
+            end_date = date(target_date.year + 1, 1, 1) - timedelta(days=1)
+    else:
+        start_date = date(target_date.year, 1, 1)
+        end_date = date(target_date.year, 12, 31)
+
+    start = datetime.combine(start_date, time.min)
+    end = datetime.combine(end_date + timedelta(days=1), time.min)
+    return start, end
 
 
 def round_metric(value: Optional[float]) -> float:
@@ -104,6 +126,7 @@ def build_report_entry(
         customer_name=customer_name,
         store_id=order.store_id,
         store_name=store_name,
+        order_status=order.status,
         total_amount=total_amount,
         completed_at=completed_at,
         delivery_id=delivery_id,
@@ -113,6 +136,7 @@ def build_report_entry(
         pick_minutes=pick_minutes,
         delivery_minutes=delivery_minutes,
         assignment_to_delivery_minutes=assignment_to_delivery_minutes,
+        review=order.review,
     )
 
 
@@ -317,12 +341,14 @@ def build_driver_leaderboard(entries: list[schemas.ReportEntry]) -> list[schemas
 @router.get("/summary", response_model=schemas.ReportSummaryResponse)
 def get_report_summary(
     period: ReportPeriod = "week",
+    anchor_date: Optional[date] = None,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_roles("admin", "manager", "staff", "driver")),
 ):
-    period_start = get_period_start(period)
+    period_start, period_end = get_period_bounds(period, anchor_date)
     completion_query = db.query(models.OrderCompletionRecord).filter(
-        models.OrderCompletionRecord.completed_at >= period_start
+        models.OrderCompletionRecord.completed_at >= period_start,
+        models.OrderCompletionRecord.completed_at < period_end,
     )
 
     scope: Literal["system", "staff", "driver"] = "system"
@@ -381,6 +407,9 @@ def get_report_summary(
     return schemas.ReportSummaryResponse(
         scope=scope,
         period=period,
+        anchor_date=period_start.date(),
+        range_start=period_start,
+        range_end=period_end - timedelta(seconds=1),
         completed_orders=len(entries),
         total_revenue=total_revenue,
         entries=entries,

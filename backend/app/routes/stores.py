@@ -12,7 +12,7 @@ router = APIRouter(prefix="/stores", tags=["Stores"])
 def create_store(
     store: schemas.StoreCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("admin"))
 ):
     new_store = models.Store(name=store.name, location=store.location)
     db.add(new_store)

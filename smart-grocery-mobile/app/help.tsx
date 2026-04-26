@@ -17,7 +17,7 @@ const HELP_SECTIONS = [
   {
     title: 'Who sees what',
     body:
-      'Customers shop and track personal orders. Staff handle picking. Drivers handle assigned deliveries. Managers and admins oversee catalog, operations, deliveries, and reports.',
+      'Customers shop and track personal orders. Staff handle picking. Drivers handle assigned deliveries. Managers run catalog, fulfillment, and delivery operations, while admins oversee stores, users, roles, and system-wide reporting.',
   },
   {
     title: 'Notifications and reports',

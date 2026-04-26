@@ -16,7 +16,7 @@ router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
 def create_delivery(
     delivery: schemas.DeliveryCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff"))
 ):
     order = db.query(models.Order).filter(models.Order.id == delivery.order_id).first()
     if not order:
@@ -67,12 +67,45 @@ def get_deliveries(
     )
 
 
+@router.get("/my", response_model=list[schemas.DeliveryResponse])
+def get_my_deliveries(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles("customer"))
+):
+    return (
+        db.query(models.Delivery)
+        .join(models.Order)
+        .filter(models.Order.user_id == current_user.id)
+        .order_by(models.Delivery.id.desc())
+        .all()
+    )
+
+
+@router.get("/{delivery_id}", response_model=schemas.DeliveryResponse)
+def get_delivery(
+    delivery_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles("admin", "manager", "staff", "driver", "customer"))
+):
+    delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
+    if not delivery:
+      raise HTTPException(status_code=404, detail="Delivery not found")
+
+    if current_user.role == "customer" and delivery.order.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only view your own deliveries")
+
+    if current_user.role == "driver" and delivery.driver_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only view your own deliveries")
+
+    return delivery
+
+
 @router.put("/{delivery_id}/assign", response_model=schemas.DeliveryResponse)
 def assign_delivery_driver(
     delivery_id: int,
     payload: schemas.DeliveryAssignRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager"))
+    current_user=Depends(require_roles("manager"))
 ):
     delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
 
@@ -128,7 +161,7 @@ def update_delivery_status(
     delivery_id: int,
     status: Literal["assigned", "on_the_way", "delivered"],
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("admin", "manager", "driver"))
+    current_user=Depends(require_roles("manager", "driver"))
 ):
     delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
 
@@ -175,3 +208,26 @@ def update_delivery_status(
         "delivery_id": delivery.id,
         "status": delivery.status
     }
+
+
+@router.put("/{delivery_id}/location", response_model=schemas.DeliveryResponse)
+def update_delivery_location(
+    delivery_id: int,
+    payload: schemas.DeliveryLocationUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles("manager", "driver"))
+):
+    delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
+
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    if current_user.role == "driver" and delivery.driver_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only update your own deliveries")
+
+    delivery.driver_latitude = payload.driver_latitude
+    delivery.driver_longitude = payload.driver_longitude
+    delivery.driver_location_updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(delivery)
+    return delivery
