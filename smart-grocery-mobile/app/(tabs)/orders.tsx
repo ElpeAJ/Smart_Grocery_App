@@ -64,6 +64,26 @@ function formatCustomerDeliveryStatus(order: Order, delivery?: Delivery) {
   return formatOrderStatus(order.status);
 }
 
+function formatPaymentStatus(order: Order) {
+  const payment = order.payment;
+  if (!payment) {
+    return 'Not recorded';
+  }
+
+  switch (payment.status) {
+    case 'paid':
+      return 'Paid';
+    case 'cash_confirmed':
+      return 'Cash confirmed';
+    case 'cash_pending':
+      return 'Cash due on delivery';
+    case 'pending':
+      return 'Awaiting Paystack confirmation';
+    case 'failed':
+      return 'Payment failed';
+  }
+}
+
 function formatTrackingTime(value?: string | null) {
   if (!value) {
     return null;
@@ -341,6 +361,21 @@ export default function OrdersScreen() {
               <Ionicons name="time-outline" size={15} color="#64748B" />
               <Text style={styles.orderMeta}>Created: {new Date(item.created_at).toLocaleString()}</Text>
             </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="card-outline" size={15} color="#64748B" />
+              <Text style={styles.orderMeta}>
+                Payment: {item.payment ? item.payment.method.replaceAll('_', ' ') : 'Not recorded'} • {formatPaymentStatus(item)}
+              </Text>
+            </View>
+            {item.payment?.method === 'cash_on_delivery' && item.payment.status === 'cash_pending' ? (
+              <View style={styles.cashCodePanel}>
+                <Text style={styles.cashCodeLabel}>Cash confirmation code</Text>
+                <Text style={styles.cashCodeValue}>{item.payment.cash_confirmation_code ?? '------'}</Text>
+                <Text style={styles.cashCodeHint}>
+                  Share this code with the driver only after you have paid in cash.
+                </Text>
+              </View>
+            ) : null}
             <View style={styles.sectionTitleRow}>
               <Ionicons name="basket-outline" size={16} color="#0F172A" />
               <Text style={styles.sectionTitle}>Items</Text>
@@ -682,6 +717,32 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 999,
+  },
+  cashCodePanel: {
+    marginTop: 12,
+    backgroundColor: '#ECFDF3',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    padding: 14,
+    gap: 4,
+  },
+  cashCodeLabel: {
+    color: '#166534',
+    fontSize: 13,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  cashCodeValue: {
+    color: '#14532D',
+    fontSize: 28,
+    fontWeight: '800',
+    letterSpacing: 3,
+  },
+  cashCodeHint: {
+    color: '#475569',
+    lineHeight: 18,
   },
   sectionTitle: {
     fontSize: 15,

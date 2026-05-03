@@ -7,6 +7,7 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -43,6 +44,7 @@ export default function DeliveriesScreen() {
   const [busyDeliveryId, setBusyDeliveryId] = useState<number | null>(null);
   const [openPickerDeliveryId, setOpenPickerDeliveryId] = useState<number | null>(null);
   const [activeFilter, setActiveFilter] = useState<ManagerDeliveryFilter>('all');
+  const [cashCodesByDeliveryId, setCashCodesByDeliveryId] = useState<Record<number, string>>({});
 
   const canAssignDrivers = role === 'manager';
   const canUpdateOwnDeliveries = role === 'driver';
@@ -175,6 +177,29 @@ export default function DeliveriesScreen() {
       await triggerSuccessHaptic();
     } catch (error: any) {
       Alert.alert('Could not update delivery', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setBusyDeliveryId(null);
+    }
+  };
+
+  const confirmCashAndDeliver = async (deliveryId: number) => {
+    const code = cashCodesByDeliveryId[deliveryId]?.trim();
+
+    if (!code) {
+      Alert.alert('Missing code', 'Enter the customer cash confirmation code before completing this delivery.');
+      return;
+    }
+
+    await triggerLightHaptic();
+    setBusyDeliveryId(deliveryId);
+
+    try {
+      await api.put(`/deliveries/${deliveryId}/confirm-cash`, { code });
+      setCashCodesByDeliveryId((current) => ({ ...current, [deliveryId]: '' }));
+      await loadDeliveries();
+      await triggerSuccessHaptic();
+    } catch (error: any) {
+      Alert.alert('Could not confirm cash', error.response?.data?.detail || 'Please try again.');
     } finally {
       setBusyDeliveryId(null);
     }
@@ -326,6 +351,15 @@ export default function DeliveriesScreen() {
                   (item.driver_id ? `Driver #${item.driver_id}` : 'Unassigned')}
               </Text>
             </View>
+            <View style={styles.metaRow}>
+              <Ionicons name="card-outline" size={15} color="#64748B" />
+              <Text style={styles.metaText}>
+                Payment:{' '}
+                {item.payment
+                  ? `${item.payment.method.replaceAll('_', ' ')} • ${item.payment.status.replaceAll('_', ' ')}`
+                  : 'Not recorded'}
+              </Text>
+            </View>
 
             {canUpdateOwnDeliveries && item.driver_id === user?.id ? (
               <TouchableOpacity
@@ -449,15 +483,39 @@ export default function DeliveriesScreen() {
                 ) : null}
 
                 {item.status === 'on_the_way' ? (
-                  <TouchableOpacity
-                    style={[styles.actionButton, busyDeliveryId === item.id && styles.disabledButton]}
-                    onPress={() => updateDeliveryStatus(item.id, 'delivered')}
-                    disabled={busyDeliveryId === item.id}
-                  >
-                    <Text style={styles.actionButtonText}>
-                      {busyDeliveryId === item.id ? 'Saving...' : 'Mark Delivered'}
-                    </Text>
-                  </TouchableOpacity>
+                  item.payment?.method === 'cash_on_delivery' && item.payment.status !== 'cash_confirmed' ? (
+                    <View style={styles.cashConfirmWrap}>
+                      <Text style={styles.cashConfirmTitle}>Cash confirmation code</Text>
+                      <TextInput
+                        value={cashCodesByDeliveryId[item.id] ?? ''}
+                        onChangeText={(value) =>
+                          setCashCodesByDeliveryId((current) => ({ ...current, [item.id]: value }))
+                        }
+                        placeholder="Enter customer code"
+                        keyboardType="number-pad"
+                        style={styles.cashCodeInput}
+                      />
+                      <TouchableOpacity
+                        style={[styles.actionButton, busyDeliveryId === item.id && styles.disabledButton]}
+                        onPress={() => confirmCashAndDeliver(item.id)}
+                        disabled={busyDeliveryId === item.id}
+                      >
+                        <Text style={styles.actionButtonText}>
+                          {busyDeliveryId === item.id ? 'Saving...' : 'Confirm Cash & Deliver'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.actionButton, busyDeliveryId === item.id && styles.disabledButton]}
+                      onPress={() => updateDeliveryStatus(item.id, 'delivered')}
+                      disabled={busyDeliveryId === item.id}
+                    >
+                      <Text style={styles.actionButtonText}>
+                        {busyDeliveryId === item.id ? 'Saving...' : 'Mark Delivered'}
+                      </Text>
+                    </TouchableOpacity>
+                  )
                 ) : null}
               </View>
             ) : null}
@@ -699,6 +757,26 @@ const styles = StyleSheet.create({
   actionRow: {
     marginTop: 14,
     flexDirection: 'row',
+  },
+  cashConfirmWrap: {
+    marginTop: 4,
+    gap: 10,
+    flex: 1,
+  },
+  cashConfirmTitle: {
+    color: '#7C5C1B',
+    fontWeight: '700',
+  },
+  cashCodeInput: {
+    borderWidth: 1,
+    borderColor: '#FACC15',
+    backgroundColor: '#FFFBEA',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: '#0F172A',
+    fontWeight: '700',
+    letterSpacing: 2,
   },
   chatMeta: {
     marginTop: 14,

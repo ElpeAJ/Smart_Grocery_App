@@ -19,6 +19,7 @@ from .routes.reports import router as report_router
 from .routes.categories import router as category_router
 from .routes.notifications import router as notification_router
 from .routes.order_chat import router as order_chat_router
+from .routes.payments import router as payment_router
 
 Base.metadata.create_all(bind=engine)
 
@@ -159,6 +160,7 @@ app.include_router(report_router)
 app.include_router(category_router)
 app.include_router(notification_router)
 app.include_router(order_chat_router)
+app.include_router(payment_router)
 
 
 @app.get("/")

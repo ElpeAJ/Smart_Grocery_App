@@ -22,6 +22,7 @@ class User(Base):
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
     chat_messages = relationship("OrderChatMessage", back_populates="sender", cascade="all, delete-orphan")
     reviews = relationship("OrderReview", back_populates="user", cascade="all, delete-orphan")
+    confirmed_cash_payments = relationship("PaymentTransaction", back_populates="cash_confirmer")
 
 
 class Store(Base):
@@ -105,6 +106,12 @@ class Order(Base):
         uselist=False,
         cascade="all, delete-orphan",
     )
+    payment = relationship(
+        "PaymentTransaction",
+        back_populates="order",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
 
     @property
     def all_items_picked(self):
@@ -117,6 +124,10 @@ class Order(Base):
     @property
     def store_name(self):
         return self.store.name if self.store else None
+
+    @property
+    def total_amount(self):
+        return float(sum(item.quantity * item.unit_price for item in self.items))
 
 
 class OrderItem(Base):
@@ -195,6 +206,10 @@ class Delivery(Base):
     @property
     def store_name(self):
         return self.order.store.name if self.order and self.order.store else None
+
+    @property
+    def payment(self):
+        return self.order.payment if self.order else None
 
 
 class OrderReview(Base):
@@ -368,3 +383,29 @@ class OrderChatMessage(Base):
     @property
     def sender_role(self):
         return self.sender.role if self.sender else None
+
+
+class PaymentTransaction(Base):
+    __tablename__ = "payment_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
+    method = Column(String, nullable=False, default="cash_on_delivery")
+    provider = Column(String, nullable=True)
+    status = Column(String, nullable=False, default="cash_pending")
+    amount = Column(Float, nullable=False, default=0.0)
+    currency = Column(String, nullable=False, default="GHS")
+    reference = Column(String, unique=True, nullable=True)
+    authorization_url = Column(String, nullable=True)
+    access_code = Column(String, nullable=True)
+    gateway_response = Column(String, nullable=True)
+    paid_at = Column(DateTime, nullable=True)
+    cash_confirmation_code = Column(String, nullable=True)
+    cash_code_generated_at = Column(DateTime, nullable=True)
+    cash_confirmed_at = Column(DateTime, nullable=True)
+    cash_confirmed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    order = relationship("Order", back_populates="payment")
+    cash_confirmer = relationship("User", back_populates="confirmed_cash_payments")

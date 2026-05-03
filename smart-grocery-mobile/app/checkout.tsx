@@ -4,10 +4,12 @@ import { Alert, Modal, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity
 import { Redirect, router, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
+import * as Linking from 'expo-linking';
+import * as WebBrowser from 'expo-web-browser';
 
 import api from '../src/api/client';
 import { useAuth } from '../src/context/AuthContext';
-import type { Cart, DeliveryWindow, UserProfile } from '../src/types/api';
+import type { Cart, DeliveryWindow, Order, PaymentVerificationResponse, UserProfile } from '../src/types/api';
 import { formatCedi } from '../src/utils/currency';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../src/utils/roles';
@@ -127,16 +129,57 @@ export default function CheckoutScreen() {
         delivery_longitude: deliveryLongitude,
       });
 
-      await api.post('/cart/checkout', {
+      const checkoutResponse = await api.post<Order>('/cart/checkout', {
         delivery_address: deliveryAddress.trim(),
         delivery_latitude: deliveryLatitude,
         delivery_longitude: deliveryLongitude,
         payment_method: paymentMethod,
         delivery_window_key: selectedDeliveryWindowKey,
+        paystack_callback_url:
+          paymentMethod === 'cash_on_delivery' ? undefined : Linking.createURL('/payments/paystack'),
       });
 
+      const createdOrder = checkoutResponse.data;
+
+      if (createdOrder.payment?.method === 'cash_on_delivery') {
+        await triggerSuccessHaptic();
+        Alert.alert(
+          'Order placed',
+          `Your order was placed successfully. Share cash code ${createdOrder.payment.cash_confirmation_code ?? '------'} with the driver after paying on delivery.`
+        );
+        router.replace('/(tabs)/orders');
+        return;
+      }
+
+      if (createdOrder.payment?.authorization_url && createdOrder.payment.reference) {
+        const callbackUrl = Linking.createURL('/payments/paystack');
+        const authResult = await WebBrowser.openAuthSessionAsync(
+          createdOrder.payment.authorization_url,
+          callbackUrl
+        );
+
+        if (authResult.type === 'cancel' || authResult.type === 'dismiss') {
+          Alert.alert(
+            'Payment pending',
+            'The order was created, but card payment has not been confirmed yet. You can verify it from your next payment attempt.'
+          );
+          router.replace('/(tabs)/orders');
+          return;
+        }
+
+        const verificationResponse = await api.post<PaymentVerificationResponse>(
+          `/payments/orders/${createdOrder.id}/verify-paystack`
+        );
+
+        if (!verificationResponse.data.verified) {
+          Alert.alert('Payment pending', verificationResponse.data.detail);
+          router.replace('/(tabs)/orders');
+          return;
+        }
+      }
+
       await triggerSuccessHaptic();
-      Alert.alert('Order placed', 'Your grocery order has been placed successfully.');
+      Alert.alert('Payment confirmed', 'Your grocery order has been placed and paid successfully.');
       router.replace('/(tabs)/orders');
     } catch (error: any) {
       Alert.alert('Checkout failed', error.response?.data?.detail || 'Please try again.');

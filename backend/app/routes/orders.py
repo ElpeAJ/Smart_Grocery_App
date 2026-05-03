@@ -203,6 +203,11 @@ def update_order_status(
                 status_code=400,
                 detail="Orders must be reviewed before delivery release",
             )
+        if order.payment and order.payment.method in {"card", "mobile_money"} and order.payment.status != "paid":
+            raise HTTPException(
+                status_code=400,
+                detail="Online payment must be verified before the order can be released for delivery",
+            )
 
     order.status = status
     if status == "out_for_delivery":

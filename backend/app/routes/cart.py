@@ -8,6 +8,13 @@ from ..database import get_db
 from ..dependencies import get_current_user
 from ..delivery_windows import get_available_delivery_windows, resolve_delivery_window
 from ..notification_utils import create_notification, create_notifications_for_roles
+from ..payment_utils import (
+    PaymentConfigurationError,
+    PaymentGatewayError,
+    generate_cash_confirmation_code,
+    generate_payment_reference,
+    initialize_paystack_transaction,
+)
 
 router = APIRouter(prefix="/cart", tags=["Cart"])
 
@@ -216,6 +223,45 @@ def checkout_cart(
                 kind="inventory",
             )
 
+    payment_amount = float(sum(item.quantity * item.product.price for item in cart.items))
+    payment = models.PaymentTransaction(
+        order_id=new_order.id,
+        method=checkout_data.payment_method,
+        provider="paystack" if checkout_data.payment_method in {"card", "mobile_money"} else "cash",
+        status="cash_pending" if checkout_data.payment_method == "cash_on_delivery" else "pending",
+        amount=payment_amount,
+        currency="GHS",
+    )
+
+    if checkout_data.payment_method == "cash_on_delivery":
+        payment.cash_confirmation_code = generate_cash_confirmation_code()
+        payment.cash_code_generated_at = datetime.utcnow()
+    else:
+        payment.reference = generate_payment_reference(new_order.id)
+        try:
+            paystack_response = initialize_paystack_transaction(
+                email=current_user.email,
+                amount_subunit=int(round(payment_amount * 100)),
+                reference=payment.reference,
+                callback_url=checkout_data.paystack_callback_url,
+                channels=["card"] if checkout_data.payment_method == "card" else ["mobile_money"],
+                metadata={
+                    "order_id": new_order.id,
+                    "user_id": current_user.id,
+                    "store_id": cart.store_id,
+                    "payment_method": checkout_data.payment_method,
+                },
+            )
+        except PaymentConfigurationError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except PaymentGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+        payment.authorization_url = paystack_response.get("authorization_url")
+        payment.access_code = paystack_response.get("access_code")
+
+    db.add(payment)
+
     db.add(
         models.Delivery(
             order_id=new_order.id,
@@ -252,6 +298,14 @@ def checkout_cart(
         message=f"A new order #{new_order.id} is waiting in the operations queue for {selected_window['label']}.",
         kind="order",
     )
+    if checkout_data.payment_method == "cash_on_delivery":
+        create_notification(
+            db,
+            user_id=current_user.id,
+            title="Cash payment code ready",
+            message=f"Use the code {payment.cash_confirmation_code} to confirm cash payment for order #{new_order.id} at delivery.",
+            kind="payment",
+        )
     db.commit()
     db.refresh(new_order)
     return new_order

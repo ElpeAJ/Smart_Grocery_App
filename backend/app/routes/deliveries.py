@@ -12,6 +12,25 @@ from .. import models, schemas
 router = APIRouter(prefix="/deliveries", tags=["Deliveries"])
 
 
+def mark_delivery_completed(db: Session, delivery: models.Delivery):
+    delivery.status = "delivered"
+    delivery.order.status = "delivered"
+    delivery.delivered_at = datetime.utcnow()
+    completion_record = delivery.order.completion_record
+    if not completion_record:
+        completion_record = models.OrderCompletionRecord(order_id=delivery.order.id)
+        db.add(completion_record)
+    completion_record.driver_user_id = delivery.driver_id
+    completion_record.completed_at = delivery.delivered_at
+    create_notification(
+        db,
+        user_id=delivery.order.user_id,
+        title="Order delivered",
+        message=f"Your order #{delivery.order_id} has been delivered.",
+        kind="delivery",
+    )
+
+
 @router.post("/", response_model=schemas.DeliveryResponse)
 def create_delivery(
     delivery: schemas.DeliveryCreate,
@@ -185,21 +204,13 @@ def update_delivery_status(
             kind="delivery",
         )
     if status == "delivered":
-        delivery.order.status = "delivered"
-        delivery.delivered_at = datetime.utcnow()
-        completion_record = delivery.order.completion_record
-        if not completion_record:
-            completion_record = models.OrderCompletionRecord(order_id=delivery.order.id)
-            db.add(completion_record)
-        completion_record.driver_user_id = delivery.driver_id
-        completion_record.completed_at = delivery.delivered_at
-        create_notification(
-            db,
-            user_id=delivery.order.user_id,
-            title="Order delivered",
-            message=f"Your order #{delivery.order_id} has been delivered.",
-            kind="delivery",
-        )
+        payment = delivery.order.payment
+        if payment and payment.method == "cash_on_delivery" and payment.status != "cash_confirmed":
+            raise HTTPException(
+                status_code=400,
+                detail="Cash payment must be confirmed with the customer code before marking this delivery as delivered",
+            )
+        mark_delivery_completed(db, delivery)
     db.commit()
     db.refresh(delivery)
 
@@ -228,6 +239,43 @@ def update_delivery_location(
     delivery.driver_latitude = payload.driver_latitude
     delivery.driver_longitude = payload.driver_longitude
     delivery.driver_location_updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
+@router.put("/{delivery_id}/confirm-cash", response_model=schemas.DeliveryResponse)
+def confirm_cash_payment(
+    delivery_id: int,
+    payload: schemas.CashPaymentConfirmationRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_roles("manager", "driver"))
+):
+    delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
+
+    if not delivery:
+        raise HTTPException(status_code=404, detail="Delivery not found")
+
+    if current_user.role == "driver" and delivery.driver_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only confirm cash for your own deliveries")
+
+    payment = delivery.order.payment
+    if not payment or payment.method != "cash_on_delivery":
+        raise HTTPException(status_code=400, detail="This delivery does not use cash on delivery")
+
+    if payment.status == "cash_confirmed":
+        return delivery
+
+    if payload.code.strip() != (payment.cash_confirmation_code or ""):
+        raise HTTPException(status_code=400, detail="The cash confirmation code is invalid")
+
+    payment.status = "cash_confirmed"
+    payment.paid_at = datetime.utcnow()
+    payment.cash_confirmed_at = payment.paid_at
+    payment.cash_confirmed_by_user_id = current_user.id
+    payment.updated_at = datetime.utcnow()
+    mark_delivery_completed(db, delivery)
+
     db.commit()
     db.refresh(delivery)
     return delivery

@@ -53,6 +53,29 @@ export type Cart = {
   total_amount: number;
 };
 
+export type PaymentMethod = 'cash_on_delivery' | 'mobile_money' | 'card';
+export type PaymentStatus = 'cash_pending' | 'pending' | 'paid' | 'failed' | 'cash_confirmed';
+
+export type PaymentTransaction = {
+  id: number;
+  order_id: number;
+  method: PaymentMethod;
+  provider: string | null;
+  status: PaymentStatus;
+  amount: number;
+  currency: string;
+  reference: string | null;
+  authorization_url: string | null;
+  access_code: string | null;
+  paid_at: string | null;
+  cash_confirmation_code: string | null;
+  cash_code_generated_at: string | null;
+  cash_confirmed_at: string | null;
+  cash_confirmed_by_user_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type OrderItem = {
   id: number;
   product_id: number;
@@ -84,6 +107,8 @@ export type Order = {
   items: OrderItem[];
   all_items_picked: boolean;
   review: OrderReview | null;
+  total_amount: number;
+  payment: PaymentTransaction | null;
 };
 
 export type Delivery = {
@@ -108,6 +133,20 @@ export type Delivery = {
   delivered_at: string | null;
   status: 'assigned' | 'on_the_way' | 'delivered';
   order_status: Order['status'] | null;
+  payment: PaymentTransaction | null;
+};
+
+export type CashPaymentCodeResponse = {
+  order_id: number;
+  code: string;
+  expires_hint: string | null;
+};
+
+export type PaymentVerificationResponse = {
+  verified: boolean;
+  detail: string;
+  order: Order;
+  payment: PaymentTransaction;
 };
 
 export type DeliveryWindow = {

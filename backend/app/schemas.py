@@ -2,6 +2,9 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List, Literal
 from datetime import date, datetime
 
+PaymentMethod = Literal["cash_on_delivery", "mobile_money", "card"]
+PaymentStatus = Literal["cash_pending", "pending", "paid", "failed", "cash_confirmed"]
+
 
 class Token(BaseModel):
     access_token: str
@@ -166,8 +169,9 @@ class CheckoutRequest(BaseModel):
     delivery_address: str = Field(min_length=5)
     delivery_latitude: Optional[float] = None
     delivery_longitude: Optional[float] = None
-    payment_method: Literal["cash_on_delivery", "mobile_money", "card"]
+    payment_method: PaymentMethod
     delivery_window_key: str = Field(min_length=1)
+    paystack_callback_url: Optional[str] = None
 
 
 class DeliveryWindowResponse(BaseModel):
@@ -212,6 +216,29 @@ class OrderReviewResponse(BaseModel):
         from_attributes = True
 
 
+class PaymentTransactionResponse(BaseModel):
+    id: int
+    order_id: int
+    method: PaymentMethod
+    provider: Optional[str] = None
+    status: PaymentStatus
+    amount: float
+    currency: str
+    reference: Optional[str] = None
+    authorization_url: Optional[str] = None
+    access_code: Optional[str] = None
+    paid_at: Optional[datetime] = None
+    cash_confirmation_code: Optional[str] = None
+    cash_code_generated_at: Optional[datetime] = None
+    cash_confirmed_at: Optional[datetime] = None
+    cash_confirmed_by_user_id: Optional[int] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class OrderCreate(BaseModel):
     store_id: Optional[int] = None
     items: List[OrderItemCreate]
@@ -229,6 +256,8 @@ class OrderResponse(BaseModel):
     items: List[OrderItemResponse]
     all_items_picked: bool
     review: Optional[OrderReviewResponse] = None
+    total_amount: float
+    payment: Optional[PaymentTransactionResponse] = None
 
     class Config:
         from_attributes = True
@@ -262,6 +291,7 @@ class DeliveryResponse(BaseModel):
     delivered_at: Optional[datetime] = None
     status: Literal["assigned", "on_the_way", "delivered"]
     order_status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = None
+    payment: Optional[PaymentTransactionResponse] = None
 
     class Config:
         from_attributes = True
@@ -274,6 +304,23 @@ class DeliveryAssignRequest(BaseModel):
 class DeliveryLocationUpdate(BaseModel):
     driver_latitude: float
     driver_longitude: float
+
+
+class CashPaymentConfirmationRequest(BaseModel):
+    code: str = Field(min_length=4, max_length=12)
+
+
+class CashPaymentCodeResponse(BaseModel):
+    order_id: int
+    code: str
+    expires_hint: Optional[str] = None
+
+
+class PaymentVerificationResponse(BaseModel):
+    verified: bool
+    detail: str
+    order: OrderResponse
+    payment: PaymentTransactionResponse
 
 
 class OrderItemPickUpdate(BaseModel):
