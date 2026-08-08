@@ -22,6 +22,11 @@ class UserLogin(BaseModel):
     password: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+    new_password: str = Field(min_length=8)
+
+
 class UserResponse(BaseModel):
     id: int
     full_name: str
@@ -37,10 +42,20 @@ class StoreCreate(BaseModel):
     location: str
 
 
+class StoreUpdate(BaseModel):
+    name: str
+    location: str
+
+
+class StoreStatusUpdate(BaseModel):
+    is_open: bool
+
+
 class StoreResponse(BaseModel):
     id: int
     name: str
     location: str
+    is_open: bool
 
     class Config:
         from_attributes = True
@@ -132,6 +147,8 @@ class ProductResponse(BaseModel):
     price: float
     stock_quantity: int
     status: str
+    tax_rate: float
+    tax_status: Literal["tax_exempt", "vat_15"]
     category: Optional[ProductCategoryResponse]
     image_url: Optional[str]
 
@@ -152,6 +169,9 @@ class CartItemResponse(BaseModel):
     id: int
     product_id: int
     quantity: int
+    line_subtotal: float
+    line_tax: float
+    line_total: float
     product: ProductResponse
 
     class Config:
@@ -162,6 +182,8 @@ class CartResponse(BaseModel):
     id: int
     store_id: Optional[int]
     items: List[CartItemResponse]
+    subtotal_amount: float
+    tax_total: float
     total_amount: float
 
 
@@ -192,6 +214,10 @@ class OrderItemResponse(BaseModel):
     product_name: Optional[str]
     quantity: int
     unit_price: float
+    tax_rate: float
+    tax_amount: float
+    line_subtotal: float
+    line_total: float
     is_picked: bool
 
     class Config:
@@ -199,7 +225,7 @@ class OrderItemResponse(BaseModel):
 
 
 class OrderReviewCreate(BaseModel):
-    rating: int = Field(ge=1, le=5)
+    rating: float = Field(ge=0.5, le=5, multiple_of=0.5)
     comment: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -207,7 +233,7 @@ class OrderReviewResponse(BaseModel):
     id: int
     order_id: int
     user_id: int
-    rating: int
+    rating: float
     comment: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -239,6 +265,30 @@ class PaymentTransactionResponse(BaseModel):
         from_attributes = True
 
 
+class SavedPaymentMethodResponse(BaseModel):
+    id: int
+    provider: str
+    brand: Optional[str] = None
+    last4: Optional[str] = None
+    exp_month: Optional[str] = None
+    exp_year: Optional[str] = None
+    bank: Optional[str] = None
+    account_name: Optional[str] = None
+    authorization_channel: Optional[str] = None
+    reusable: bool
+    is_default: bool
+    last_used_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class SavedPaymentMethodDefaultUpdate(BaseModel):
+    is_default: bool = True
+
+
 class OrderCreate(BaseModel):
     store_id: Optional[int] = None
     items: List[OrderItemCreate]
@@ -251,11 +301,14 @@ class OrderResponse(BaseModel):
     store_id: Optional[int]
     store_name: Optional[str] = None
     delivery_window_label: Optional[str] = None
+    review_requested_at: Optional[datetime] = None
     status: Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]
     created_at: datetime
     items: List[OrderItemResponse]
     all_items_picked: bool
     review: Optional[OrderReviewResponse] = None
+    subtotal_amount: float
+    tax_total: float
     total_amount: float
     payment: Optional[PaymentTransactionResponse] = None
 

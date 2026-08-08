@@ -15,8 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
 import type { AppUser, Delivery, OrderChatSummary } from '../../src/types/api';
+import { getOrderStatusTone, getPaymentStatusTone } from '../../src/utils/status';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { canHandleDeliveries, getHomeRouteForRole } from '../../src/utils/roles';
 
@@ -46,7 +48,7 @@ export default function DeliveriesScreen() {
   const [activeFilter, setActiveFilter] = useState<ManagerDeliveryFilter>('all');
   const [cashCodesByDeliveryId, setCashCodesByDeliveryId] = useState<Record<number, string>>({});
 
-  const canAssignDrivers = role === 'manager';
+  const canAssignDrivers = role === 'manager' || role === 'admin';
   const canUpdateOwnDeliveries = role === 'driver';
 
   const deliveryMetrics = useMemo(() => {
@@ -231,6 +233,12 @@ export default function DeliveriesScreen() {
         ListHeaderComponent={
           <View style={styles.header}>
             <View style={styles.heroCard}>
+              <UserAvatarBadge
+                fullName={user?.full_name}
+                email={user?.email}
+                role={user?.role}
+                style={styles.heroAvatar}
+              />
               <Text style={styles.eyebrow}>HANDOFF AND DELIVERY</Text>
               <Text style={styles.title}>Deliveries</Text>
               <Text style={styles.subtitle}>
@@ -302,14 +310,19 @@ export default function DeliveriesScreen() {
                 <Ionicons name="bicycle-outline" size={18} color="#1F4F7A" />
                 <Text style={styles.cardTitle}>Delivery #{item.id}</Text>
               </View>
-              <View style={[styles.statusPill, item.status === 'on_the_way' && styles.statusPillActive]}>
-                <Text
-                  style={[
-                    styles.statusText,
-                    item.status === 'assigned' && item.driver_id === null && styles.statusTextMuted,
-                    item.status === 'on_the_way' && styles.statusTextActive,
-                  ]}
-                >
+              <View
+                style={[
+                  styles.statusPill,
+                  item.status === 'assigned' && item.driver_id === null
+                    ? styles.statusPillUnassigned
+                    : item.status === 'assigned'
+                      ? styles.statusPillPending
+                      : item.status === 'on_the_way'
+                        ? styles.statusPillInTransit
+                        : styles.statusPillDelivered,
+                ]}
+              >
+                <Text style={styles.statusText}>
                   {formatDeliveryStatus(item.status, item.driver_id !== null)}
                 </Text>
               </View>
@@ -328,9 +341,16 @@ export default function DeliveriesScreen() {
             </View>
             <View style={styles.metaRow}>
               <Ionicons name="bag-check-outline" size={15} color="#64748B" />
-              <Text style={styles.metaText}>
-                Order status: {item.order_status ? item.order_status.replaceAll('_', ' ') : 'Unknown'}
-              </Text>
+              <Text style={styles.metaText}>Order status:</Text>
+              {item.order_status ? (
+                <View style={[styles.inlineStatusPill, getOrderStatusTone(item.order_status)]}>
+                  <Text style={[styles.inlineStatusPillText, { color: getOrderStatusTone(item.order_status).textColor }]}>
+                    {item.order_status.replaceAll('_', ' ')}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.metaText}>Unknown</Text>
+              )}
             </View>
             {item.delivery_window_label ? (
               <View style={styles.metaRow}>
@@ -353,12 +373,24 @@ export default function DeliveriesScreen() {
             </View>
             <View style={styles.metaRow}>
               <Ionicons name="card-outline" size={15} color="#64748B" />
-              <Text style={styles.metaText}>
-                Payment:{' '}
-                {item.payment
-                  ? `${item.payment.method.replaceAll('_', ' ')} • ${item.payment.status.replaceAll('_', ' ')}`
-                  : 'Not recorded'}
-              </Text>
+              <Text style={styles.metaText}>Payment:</Text>
+              {item.payment ? (
+                <>
+                  <Text style={styles.metaText}>{item.payment.method.replaceAll('_', ' ')}</Text>
+                  <View style={[styles.inlineStatusPill, getPaymentStatusTone(item.payment.status)]}>
+                    <Text
+                      style={[
+                        styles.inlineStatusPillText,
+                        { color: getPaymentStatusTone(item.payment.status).textColor },
+                      ]}
+                    >
+                      {item.payment.status.replaceAll('_', ' ')}
+                    </Text>
+                  </View>
+                </>
+              ) : (
+                <Text style={styles.metaText}>Not recorded</Text>
+              )}
             </View>
 
             {canUpdateOwnDeliveries && item.driver_id === user?.id ? (
@@ -554,6 +586,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
   },
+  heroAvatar: {
+    marginBottom: 4,
+  },
   eyebrow: {
     color: '#CFE9D8',
     fontSize: 11,
@@ -676,23 +711,30 @@ const styles = StyleSheet.create({
     color: '#1F4F7A',
   },
   statusPill: {
-    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6,
   },
-  statusPillActive: {
+  statusPillUnassigned: {
+    backgroundColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+  },
+  statusPillPending: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FCD34D',
+  },
+  statusPillInTransit: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#93C5FD',
+  },
+  statusPillDelivered: {
     backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
   },
   statusText: {
-    color: '#166534',
+    color: '#334155',
     fontWeight: '700',
-  },
-  statusTextActive: {
-    color: '#166534',
-  },
-  statusTextMuted: {
-    color: '#64748B',
   },
   metaRow: {
     marginTop: 6,
@@ -702,7 +744,17 @@ const styles = StyleSheet.create({
   },
   metaText: {
     color: '#475569',
-    flex: 1,
+  },
+  inlineStatusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  inlineStatusPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'capitalize',
   },
   sectionTitle: {
     marginTop: 14,

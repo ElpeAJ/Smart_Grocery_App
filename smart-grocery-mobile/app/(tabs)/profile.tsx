@@ -6,9 +6,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Location from 'expo-location';
 
 import api from '../../src/api/client';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
 import { BASE_URL } from '../../src/config';
-import type { Store, UserProfile } from '../../src/types/api';
+import type { SavedPaymentMethod, Store, UserProfile } from '../../src/types/api';
+import { isCustomerRole } from '../../src/utils/roles';
 
 export default function ProfileScreen() {
   const params = useLocalSearchParams<{
@@ -25,6 +27,7 @@ export default function ProfileScreen() {
   const [pickedLongitude, setPickedLongitude] = useState<number | null>(null);
   const [selectedStoreId, setSelectedStoreId] = useState<number | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [savedPaymentMethods, setSavedPaymentMethods] = useState<SavedPaymentMethod[]>([]);
 
   const handleDeliveryAddressChange = (value: string) => {
     setDeliveryAddress(value);
@@ -34,13 +37,17 @@ export default function ProfileScreen() {
 
   const loadProfile = useCallback(async () => {
     try {
-      const [storesResponse, profileResponse] = await Promise.all([
+      const [storesResponse, profileResponse, paymentMethodsResponse] = await Promise.all([
         api.get<Store[]>('/stores/'),
         api.get<UserProfile>('/profile/me'),
+        isCustomerRole(user?.role)
+          ? api.get<SavedPaymentMethod[]>('/payments/saved-methods')
+          : Promise.resolve({ data: [] as SavedPaymentMethod[] }),
       ]);
 
       setStores(storesResponse.data);
       setProfile(profileResponse.data);
+      setSavedPaymentMethods(paymentMethodsResponse.data);
       setPhoneNumber(profileResponse.data.phone_number ?? '');
       setDeliveryAddress(profileResponse.data.delivery_address ?? '');
       setPickedLatitude(profileResponse.data.delivery_latitude ?? null);
@@ -120,6 +127,30 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleSetDefaultPaymentMethod = async (savedMethodId: number) => {
+    try {
+      const response = await api.put<SavedPaymentMethod>(`/payments/saved-methods/${savedMethodId}/default`, {
+        is_default: true,
+      });
+      setSavedPaymentMethods((current) =>
+        current
+          .map((method) => ({ ...method, is_default: false }))
+          .map((method) => (method.id === response.data.id ? response.data : method))
+      );
+    } catch (error: any) {
+      Alert.alert('Could not update default card', error.response?.data?.detail || 'Please try again.');
+    }
+  };
+
+  const handleDeletePaymentMethod = async (savedMethodId: number) => {
+    try {
+      await api.delete(`/payments/saved-methods/${savedMethodId}`);
+      setSavedPaymentMethods((current) => current.filter((method) => method.id !== savedMethodId));
+    } catch (error: any) {
+      Alert.alert('Could not remove saved card', error.response?.data?.detail || 'Please try again.');
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <FlatList
@@ -130,6 +161,12 @@ export default function ProfileScreen() {
         ListHeaderComponent={
           <>
             <View style={styles.heroCard}>
+              <UserAvatarBadge
+                fullName={user?.full_name}
+                email={user?.email}
+                role={user?.role}
+                style={styles.heroAvatar}
+              />
               <Text style={styles.eyebrow}>ACCOUNT AND DELIVERY</Text>
               <Text style={styles.title}>Profile</Text>
               <Text style={styles.subtitle}>
@@ -254,6 +291,69 @@ export default function ProfileScreen() {
               ) : null}
             </View>
 
+            {isCustomerRole(user?.role) ? (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Saved Payment Methods</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Cards saved after a successful Paystack card payment will appear here for future checkout upgrades.
+                </Text>
+
+                {savedPaymentMethods.length ? (
+                  savedPaymentMethods.map((method) => (
+                    <View key={method.id} style={styles.savedMethodCard}>
+                      <View style={styles.savedMethodTopRow}>
+                        <View style={styles.savedMethodCopy}>
+                          <Text style={styles.savedMethodTitle}>
+                            {method.brand || 'Saved card'} {method.last4 ? `•••• ${method.last4}` : ''}
+                          </Text>
+                          <Text style={styles.savedMethodMeta}>
+                            {method.bank || 'Paystack'}{method.exp_month && method.exp_year ? ` · exp ${method.exp_month}/${method.exp_year}` : ''}
+                          </Text>
+                        </View>
+                        {method.is_default ? <Text style={styles.defaultPill}>Default</Text> : null}
+                      </View>
+                      <View style={styles.savedMethodActions}>
+                        {!method.is_default ? (
+                          <TouchableOpacity
+                            style={styles.savedMethodActionButton}
+                            onPress={() => handleSetDefaultPaymentMethod(method.id)}
+                          >
+                            <Text style={styles.savedMethodActionText}>Set as default</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        <TouchableOpacity
+                          style={[styles.savedMethodActionButton, styles.savedMethodDeleteButton]}
+                          onPress={() =>
+                            Alert.alert(
+                              'Remove saved card',
+                              'This will remove the stored Paystack authorization from your profile.',
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Remove',
+                                  style: 'destructive',
+                                  onPress: () => handleDeletePaymentMethod(method.id),
+                                },
+                              ]
+                            )
+                          }
+                        >
+                          <Text style={[styles.savedMethodActionText, styles.savedMethodDeleteText]}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <View style={styles.emptyPaymentState}>
+                    <Ionicons name="card-outline" size={22} color="#64748B" />
+                    <Text style={styles.emptyPaymentStateText}>
+                      No saved cards yet. Complete a card payment once and SmartGrocery will be ready to list it here.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null}
+
             <TouchableOpacity style={styles.button} onPress={handleLogout}>
               <View style={styles.actionButtonInner}>
                 <Ionicons name="log-out-outline" size={18} color="#fff" />
@@ -314,6 +414,9 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
+  },
+  heroAvatar: {
+    marginBottom: 6,
   },
   eyebrow: {
     color: '#CFE9D8',
@@ -423,6 +526,84 @@ const styles = StyleSheet.create({
   helperText: {
     marginTop: 10,
     color: '#475569',
+  },
+  sectionSubtitle: {
+    color: '#64748B',
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  savedMethodCard: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    padding: 14,
+    gap: 12,
+    marginBottom: 12,
+    backgroundColor: '#F8FAFC',
+  },
+  savedMethodTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  savedMethodCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  savedMethodTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  savedMethodMeta: {
+    color: '#64748B',
+  },
+  defaultPill: {
+    backgroundColor: '#DCFCE7',
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '700',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  savedMethodActions: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  savedMethodActionButton: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  savedMethodActionText: {
+    color: '#1D4ED8',
+    fontWeight: '700',
+  },
+  savedMethodDeleteButton: {
+    backgroundColor: '#FEE2E2',
+  },
+  savedMethodDeleteText: {
+    color: '#B91C1C',
+  },
+  emptyPaymentState: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    padding: 18,
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#F8FAFC',
+  },
+  emptyPaymentStateText: {
+    color: '#64748B',
+    textAlign: 'center',
+    lineHeight: 20,
   },
   button: {
     backgroundColor: '#DC2626',

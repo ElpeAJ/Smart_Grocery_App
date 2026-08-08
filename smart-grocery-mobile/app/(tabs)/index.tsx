@@ -19,6 +19,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import api from '../../src/api/client';
 import ProductArtwork from '../../src/components/ProductArtwork';
 import LoadingScreen from '../../src/components/LoadingScreen';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
 import type { Product, ProductCategory, Store, UserProfile } from '../../src/types/api';
 import { getCategoryTheme } from '../../src/utils/catalog';
@@ -413,6 +414,12 @@ export default function ShopScreen() {
         style={styles.heroCard}
         onLayout={(event) => setHeroHeight(event.nativeEvent.layout.height + 16)}
       >
+        <UserAvatarBadge
+          fullName={user?.full_name}
+          email={user?.email}
+          role={user?.role}
+          style={styles.heroAvatar}
+        />
         <Text style={styles.eyebrow}>Fresh picks nearby</Text>
         <Text style={styles.title}>Smart Grocery</Text>
         <Text style={styles.subtitle}>Welcome back, {user?.full_name || user?.email}</Text>
@@ -883,6 +890,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#0F5A35',
     borderRadius: 28,
     padding: 22,
+  },
+  heroAvatar: {
+    marginBottom: 14,
   },
   eyebrow: {
     color: '#C7F9CC',

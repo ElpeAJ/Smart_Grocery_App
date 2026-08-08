@@ -14,8 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
-import type { AppUser, Product, ProductCategory, Store } from '../../src/types/api';
+import type { AppUser, Order, Product, ProductCategory, Store } from '../../src/types/api';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import {
   canAccessAdminWorkspace,
@@ -39,6 +40,7 @@ export default function AdminScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<ProductCategory[]>([]);
   const [users, setUsers] = useState<AppUser[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [creatingStore, setCreatingStore] = useState(false);
@@ -51,6 +53,8 @@ export default function AdminScreen() {
   const [updatingStoreProductId, setUpdatingStoreProductId] = useState<number | null>(null);
   const [updatingCategoryNameId, setUpdatingCategoryNameId] = useState<number | null>(null);
   const [updatingUserId, setUpdatingUserId] = useState<number | null>(null);
+  const [updatingStoreInfoId, setUpdatingStoreInfoId] = useState<number | null>(null);
+  const [updatingStoreStatusId, setUpdatingStoreStatusId] = useState<number | null>(null);
 
   const [storeName, setStoreName] = useState('');
   const [storeLocation, setStoreLocation] = useState('');
@@ -65,6 +69,8 @@ export default function AdminScreen() {
   const [stockDrafts, setStockDrafts] = useState<Record<number, string>>({});
   const [priceDrafts, setPriceDrafts] = useState<Record<number, string>>({});
   const [imageDrafts, setImageDrafts] = useState<Record<number, string>>({});
+  const [storeNameDrafts, setStoreNameDrafts] = useState<Record<number, string>>({});
+  const [storeLocationDrafts, setStoreLocationDrafts] = useState<Record<number, string>>({});
   const [storeDrafts, setStoreDrafts] = useState<Record<number, string>>({});
   const [categoryDrafts, setCategoryDrafts] = useState<Record<number, string>>({});
   const [openSections, setOpenSections] = useState<Record<AdminSection, boolean>>({
@@ -91,6 +97,24 @@ export default function AdminScreen() {
       { label: 'Drivers', value: users.filter((candidate) => candidate.role === 'driver').length },
     ],
     [categories.length, products.length, stores.length, users]
+  );
+
+  const workflowMetrics = useMemo(
+    () => [
+      { label: 'Pending', value: orders.filter((order) => order.status === 'pending').length, tone: 'yellow' },
+      {
+        label: 'Awaiting Review',
+        value: orders.filter((order) => order.status === 'awaiting_review').length,
+        tone: 'yellow',
+      },
+      {
+        label: 'Out for Delivery',
+        value: orders.filter((order) => order.status === 'out_for_delivery').length,
+        tone: 'blue',
+      },
+      { label: 'Completed', value: orders.filter((order) => order.status === 'delivered').length, tone: 'green' },
+    ],
+    [orders]
   );
 
   const filteredUsers = useMemo(
@@ -157,15 +181,19 @@ export default function AdminScreen() {
 
   const loadCatalog = useCallback(async () => {
     try {
-      const [storesResponse, productsResponse, categoriesResponse] = await Promise.all([
-        api.get<Store[]>('/stores/'),
+      const [storesResponse, productsResponse, categoriesResponse, ordersResponse] = await Promise.all([
+        api.get<Store[]>('/stores/', {
+          params: canManageStoreRecords ? { include_closed: true } : undefined,
+        }),
         api.get<Product[]>('/products/'),
         api.get<ProductCategory[]>('/categories/'),
+        api.get<Order[]>('/orders/'),
       ]);
 
       setStores(storesResponse.data);
       setProducts(productsResponse.data);
       setCategories(categoriesResponse.data);
+      setOrders(ordersResponse.data);
       setStockDrafts(
         Object.fromEntries(productsResponse.data.map((product) => [product.id, String(product.stock_quantity)]))
       );
@@ -179,6 +207,12 @@ export default function AdminScreen() {
         Object.fromEntries(
           productsResponse.data.map((product) => [product.id, product.store_id ? String(product.store_id) : ''])
         )
+      );
+      setStoreNameDrafts(
+        Object.fromEntries(storesResponse.data.map((store) => [store.id, store.name]))
+      );
+      setStoreLocationDrafts(
+        Object.fromEntries(storesResponse.data.map((store) => [store.id, store.location]))
       );
       setCategoryDrafts(
         Object.fromEntries(categoriesResponse.data.map((category) => [category.id, category.name]))
@@ -250,6 +284,47 @@ export default function AdminScreen() {
       Alert.alert('Could not create store', error.response?.data?.detail || 'Please try again.');
     } finally {
       setCreatingStore(false);
+    }
+  };
+
+  const updateStoreInfo = async (storeId: number) => {
+    const nextName = storeNameDrafts[storeId]?.trim();
+    const nextLocation = storeLocationDrafts[storeId]?.trim();
+
+    if (!nextName || !nextLocation) {
+      Alert.alert('Missing store details', 'Store name and location are both required.');
+      return;
+    }
+
+    await triggerLightHaptic();
+    setUpdatingStoreInfoId(storeId);
+    try {
+      await api.put(`/stores/${storeId}`, {
+        name: nextName,
+        location: nextLocation,
+      });
+      await loadCatalog();
+      await triggerSuccessHaptic();
+      Alert.alert('Store updated', 'The store information has been updated.');
+    } catch (error: any) {
+      Alert.alert('Could not update store', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setUpdatingStoreInfoId(null);
+    }
+  };
+
+  const updateStoreStatus = async (storeId: number, isOpen: boolean) => {
+    await triggerLightHaptic();
+    setUpdatingStoreStatusId(storeId);
+    try {
+      await api.put(`/stores/${storeId}/status`, { is_open: isOpen });
+      await loadCatalog();
+      await triggerSuccessHaptic();
+      Alert.alert(isOpen ? 'Store reopened' : 'Store closed', isOpen ? 'The store is visible again.' : 'The store will no longer appear in shopper-facing store and product lists.');
+    } catch (error: any) {
+      Alert.alert('Could not update store status', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setUpdatingStoreStatusId(null);
     }
   };
 
@@ -574,7 +649,7 @@ export default function AdminScreen() {
           <View style={styles.manageColumn}>
             <Text style={styles.manageLabel}>Assign store</Text>
             <FlatList
-              data={stores}
+              data={stores.filter((store) => store.is_open)}
               horizontal
               keyExtractor={(store) => `store-${product.id}-${store.id}`}
               showsHorizontalScrollIndicator={false}
@@ -660,6 +735,12 @@ export default function AdminScreen() {
         ListHeaderComponent={
           <View style={styles.headerContent}>
             <View style={styles.heroCard}>
+              <UserAvatarBadge
+                fullName={user?.full_name}
+                email={user?.email}
+                role={user?.role}
+                style={styles.heroAvatar}
+              />
               <Text style={styles.eyebrow}>CONTROL CENTER</Text>
               <Text style={styles.title}>{role === 'manager' ? 'Manager Workspace' : 'Admin Tools'}</Text>
               <Text style={styles.subtitle}>
@@ -682,6 +763,35 @@ export default function AdminScreen() {
                 </View>
               )}
             />
+
+            <View style={styles.sectionCard}>
+              <View style={styles.sectionHeaderStatic}>
+                <View style={styles.sectionHeaderTextWrap}>
+                  <Text style={styles.sectionHeaderTitle}>Workflow Oversight</Text>
+                  <Text style={styles.sectionHeaderHint}>
+                    See where orders are waiting, moving, or finished across the store operation.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.workflowMetricsRow}>
+                {workflowMetrics.map((item) => (
+                  <View
+                    key={item.label}
+                    style={[
+                      styles.workflowMetricCard,
+                      item.tone === 'yellow'
+                        ? styles.workflowMetricCardPending
+                        : item.tone === 'blue'
+                          ? styles.workflowMetricCardActive
+                          : styles.workflowMetricCardDone,
+                    ]}
+                  >
+                    <Text style={styles.workflowMetricValue}>{item.value}</Text>
+                    <Text style={styles.workflowMetricLabel}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
 
             {canManageStoreRecords ? (
             <View style={styles.sectionCard}>
@@ -717,6 +827,66 @@ export default function AdminScreen() {
                       {creatingStore ? 'Creating store...' : 'Create Store'}
                     </Text>
                   </TouchableOpacity>
+
+                  <Text style={styles.manageListTitle}>Existing Stores</Text>
+                  {stores.map((store) => (
+                    <View key={store.id} style={[styles.storeCard, !store.is_open && styles.closedStoreCard]}>
+                      <View style={styles.storeCardHeader}>
+                        <View style={styles.storeCardText}>
+                          <Text style={styles.storeCardTitle}>{store.name}</Text>
+                          <Text style={styles.storeCardMeta}>
+                            {store.is_open ? 'Open to shoppers' : 'Closed to shoppers'}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.storeStatusButton, !store.is_open && styles.storeStatusButtonClosed]}
+                          onPress={() => updateStoreStatus(store.id, !store.is_open)}
+                          disabled={updatingStoreStatusId === store.id}
+                        >
+                          <Text style={styles.storeStatusButtonText}>
+                            {updatingStoreStatusId === store.id
+                              ? 'Saving...'
+                              : store.is_open
+                                ? 'Close Store'
+                                : 'Reopen Store'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <View style={styles.manageRow}>
+                        <TextInput
+                          style={[styles.input, styles.manageInput]}
+                          value={storeNameDrafts[store.id] ?? store.name}
+                          onChangeText={(value) =>
+                            setStoreNameDrafts((currentDrafts) => ({ ...currentDrafts, [store.id]: value }))
+                          }
+                          placeholder="Store name"
+                        />
+                      </View>
+                      <View style={styles.manageRow}>
+                        <TextInput
+                          style={[styles.input, styles.manageInput]}
+                          value={storeLocationDrafts[store.id] ?? store.location}
+                          onChangeText={(value) =>
+                            setStoreLocationDrafts((currentDrafts) => ({ ...currentDrafts, [store.id]: value }))
+                          }
+                          placeholder="Store location"
+                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.secondaryButton,
+                            updatingStoreInfoId === store.id && styles.disabledButton,
+                          ]}
+                          onPress={() => updateStoreInfo(store.id)}
+                          disabled={updatingStoreInfoId === store.id}
+                        >
+                          <Text style={styles.secondaryButtonText}>
+                            {updatingStoreInfoId === store.id ? 'Saving...' : 'Save'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
                 </View>
               ) : null}
             </View>
@@ -847,7 +1017,7 @@ export default function AdminScreen() {
                   />
                   <Text style={styles.helperLabel}>Assign to store</Text>
                   <FlatList
-                    data={stores.map((store) => ({ id: store.id, name: store.name }))}
+                    data={stores.filter((store) => store.is_open).map((store) => ({ id: store.id, name: store.name }))}
                     horizontal
                     keyExtractor={(item) => item.id.toString()}
                     showsHorizontalScrollIndicator={false}
@@ -1129,6 +1299,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
   },
+  heroAvatar: {
+    marginBottom: 4,
+  },
   eyebrow: {
     color: '#CFE9D8',
     fontSize: 11,
@@ -1186,6 +1359,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
+  sectionHeaderStatic: {
+    gap: 16,
+  },
   sectionHeaderTextWrap: {
     flex: 1,
     minWidth: 0,
@@ -1211,6 +1387,42 @@ const styles = StyleSheet.create({
   },
   sectionToggle: {
     color: '#2563EB',
+    fontWeight: '700',
+  },
+  workflowMetricsRow: {
+    marginTop: 16,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  workflowMetricCard: {
+    flexGrow: 1,
+    minWidth: 140,
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  workflowMetricCardPending: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FCD34D',
+  },
+  workflowMetricCardActive: {
+    backgroundColor: '#DBEAFE',
+    borderColor: '#93C5FD',
+  },
+  workflowMetricCardDone: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#86EFAC',
+  },
+  workflowMetricValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  workflowMetricLabel: {
+    marginTop: 4,
+    color: '#475569',
     fontWeight: '700',
   },
   sectionBody: {
@@ -1618,6 +1830,54 @@ const styles = StyleSheet.create({
     padding: 16,
     marginHorizontal: 20,
     marginBottom: 12,
+  },
+  storeCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#DBE5F1',
+    marginBottom: 12,
+    gap: 10,
+  },
+  closedStoreCard: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FDBA74',
+  },
+  storeCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  storeCardText: {
+    flex: 1,
+    gap: 4,
+  },
+  storeCardTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  storeCardMeta: {
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  storeStatusButton: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    minWidth: 112,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  storeStatusButtonClosed: {
+    backgroundColor: '#DCFCE7',
+  },
+  storeStatusButtonText: {
+    color: '#0F172A',
+    fontWeight: '800',
   },
   nestedProductCard: {
     marginHorizontal: 12,

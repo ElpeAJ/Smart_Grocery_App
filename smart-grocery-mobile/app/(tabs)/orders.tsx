@@ -15,11 +15,13 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
 import type { Delivery, Order, OrderChatSummary } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../../src/utils/roles';
+import { getOrderStatusTone, getPaymentStatusTone } from '../../src/utils/status';
 
 function getChatLabel(summary?: OrderChatSummary) {
   if (!summary?.has_messages) {
@@ -82,6 +84,16 @@ function formatPaymentStatus(order: Order) {
     case 'failed':
       return 'Payment failed';
   }
+}
+
+function getStarIcon(rating: number, star: number) {
+  if (rating >= star) {
+    return 'star';
+  }
+  if (rating >= star - 0.5) {
+    return 'star-half';
+  }
+  return 'star-outline';
 }
 
 function formatTrackingTime(value?: string | null) {
@@ -260,6 +272,12 @@ export default function OrdersScreen() {
         style={styles.heroCard}
         onLayout={(event) => setHeroHeight(event.nativeEvent.layout.height + 24)}
       >
+        <UserAvatarBadge
+          fullName={user?.full_name}
+          email={user?.email}
+          role={user?.role}
+          style={styles.heroAvatar}
+        />
         <Text style={styles.eyebrow}>TRACK YOUR GROCERIES</Text>
         <Text style={styles.title}>Your Order History</Text>
         <Text style={styles.subtitle}>
@@ -352,7 +370,11 @@ export default function OrdersScreen() {
             </View>
             <View style={styles.infoRow}>
               <Ionicons name="bag-check-outline" size={15} color="#64748B" />
-              <Text style={styles.orderMeta}>Status: {formatCustomerDeliveryStatus(item, delivery)}</Text>
+              <View style={[styles.statusPill, getOrderStatusTone(item.status)]}>
+                <Text style={[styles.statusPillText, { color: getOrderStatusTone(item.status).textColor }]}>
+                  {formatCustomerDeliveryStatus(item, delivery)}
+                </Text>
+              </View>
             </View>
             {item.delivery_window_label ? (
               <Text style={styles.deliveryWindow}>Delivery window: {item.delivery_window_label}</Text>
@@ -363,9 +385,16 @@ export default function OrdersScreen() {
             </View>
             <View style={styles.infoRow}>
               <Ionicons name="card-outline" size={15} color="#64748B" />
-              <Text style={styles.orderMeta}>
-                Payment: {item.payment ? item.payment.method.replaceAll('_', ' ') : 'Not recorded'} • {formatPaymentStatus(item)}
-              </Text>
+              <View style={[styles.statusPill, item.payment ? getPaymentStatusTone(item.payment.status) : styles.statusPillMuted]}>
+                <Text
+                  style={[
+                    styles.statusPillText,
+                    { color: item.payment ? getPaymentStatusTone(item.payment.status).textColor : '#64748B' },
+                  ]}
+                >
+                  {item.payment ? `${item.payment.method.replaceAll('_', ' ')} • ${formatPaymentStatus(item)}` : 'Payment not recorded'}
+                </Text>
+              </View>
             </View>
             {item.payment?.method === 'cash_on_delivery' && item.payment.status === 'cash_pending' ? (
               <View style={styles.cashCodePanel}>
@@ -487,18 +516,30 @@ export default function OrdersScreen() {
                 <View style={styles.starRow}>
                   {[1, 2, 3, 4, 5].map((star) => {
                     const draftRating = reviewDrafts[item.id]?.rating ?? item.review?.rating ?? 0;
-                    const active = star <= draftRating;
+                    return (
+                      <Ionicons
+                        key={`${item.id}-star-icon-${star}`}
+                        name={getStarIcon(draftRating, star)}
+                        size={24}
+                        color="#F59E0B"
+                        style={styles.starPreviewIcon}
+                      />
+                    );
+                  })}
+                </View>
+                <View style={styles.ratingStepRow}>
+                  {[0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5].map((value) => {
+                    const draftRating = reviewDrafts[item.id]?.rating ?? item.review?.rating ?? 0;
+                    const active = draftRating === value;
                     return (
                       <TouchableOpacity
-                        key={`${item.id}-star-${star}`}
-                        style={styles.starButton}
-                        onPress={() => updateReviewDraft(item.id, { rating: star })}
+                        key={`${item.id}-rating-${value}`}
+                        style={[styles.ratingStepButton, active && styles.ratingStepButtonActive]}
+                        onPress={() => updateReviewDraft(item.id, { rating: value })}
                       >
-                        <Ionicons
-                          name={active ? 'star' : 'star-outline'}
-                          size={24}
-                          color={active ? '#F59E0B' : '#94A3B8'}
-                        />
+                        <Text style={[styles.ratingStepButtonText, active && styles.ratingStepButtonTextActive]}>
+                          {value.toFixed(1)}
+                        </Text>
                       </TouchableOpacity>
                     );
                   })}
@@ -634,6 +675,9 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
   },
+  heroAvatar: {
+    marginBottom: 4,
+  },
   eyebrow: {
     color: '#CFE9D8',
     fontSize: 11,
@@ -707,6 +751,22 @@ const styles = StyleSheet.create({
   orderMeta: {
     color: '#475569',
     flex: 1,
+  },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    alignSelf: 'flex-start',
+  },
+  statusPillMuted: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#E2E8F0',
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'capitalize',
   },
   deliveryWindow: {
     marginTop: 10,
@@ -903,10 +963,36 @@ const styles = StyleSheet.create({
     marginTop: 10,
     flexDirection: 'row',
     gap: 6,
+    marginBottom: 10,
   },
-  starButton: {
-    paddingVertical: 4,
-    paddingRight: 2,
+  starPreviewIcon: {
+    marginRight: 4,
+  },
+  ratingStepRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  ratingStepButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+    backgroundColor: '#FFFFFF',
+  },
+  ratingStepButtonActive: {
+    backgroundColor: '#FEF3C7',
+    borderColor: '#FBBF24',
+  },
+  ratingStepButtonText: {
+    color: '#475569',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  ratingStepButtonTextActive: {
+    color: '#92400E',
   },
   reviewInput: {
     marginTop: 10,

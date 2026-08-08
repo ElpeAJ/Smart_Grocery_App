@@ -15,7 +15,7 @@ router = APIRouter(prefix="/products", tags=["Products"])
 def create_product(
     product: schemas.ProductCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager"))
+    current_user=Depends(require_roles("manager", "admin"))
 ):
     if product.store_id is None:
         raise HTTPException(status_code=400, detail="Products must be assigned to a store")
@@ -23,6 +23,8 @@ def create_product(
     store = db.query(models.Store).filter(models.Store.id == product.store_id).first()
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    if not store.is_open:
+        raise HTTPException(status_code=400, detail="You cannot create products inside a closed store")
 
     category = None
     if product.category_id is not None:
@@ -61,7 +63,7 @@ def get_products(
     in_stock_only: bool = Query(default=False),
     db: Session = Depends(get_db),
 ):
-    query = db.query(models.Product)
+    query = db.query(models.Product).join(models.Store).filter(models.Store.is_open == 1)
 
     if store_id is not None:
         query = query.filter(models.Product.store_id == store_id)
@@ -93,7 +95,9 @@ def get_most_shopped_products(
 ):
     query = (
         db.query(models.Product)
+        .join(models.Store)
         .outerjoin(models.OrderItem, models.OrderItem.product_id == models.Product.id)
+        .filter(models.Store.is_open == 1)
         .group_by(models.Product.id)
         .order_by(func.coalesce(func.sum(models.OrderItem.quantity), 0).desc(), models.Product.name.asc())
     )
@@ -111,7 +115,12 @@ def get_most_shopped_products(
 
 @router.get("/{product_id}", response_model=schemas.ProductResponse)
 def get_product(product_id: int, db: Session = Depends(get_db)):
-    product = db.query(models.Product).filter(models.Product.id == product_id).first()
+    product = (
+        db.query(models.Product)
+        .join(models.Store)
+        .filter(models.Product.id == product_id, models.Store.is_open == 1)
+        .first()
+    )
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     return product
@@ -122,7 +131,7 @@ def update_product_category(
     product_id: int,
     payload: schemas.ProductCategoryUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager"))
+    current_user=Depends(require_roles("manager", "admin"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -153,7 +162,7 @@ def update_product_price(
     product_id: int,
     payload: schemas.ProductPriceUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager"))
+    current_user=Depends(require_roles("manager", "admin"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -170,7 +179,7 @@ def update_product_store(
     product_id: int,
     payload: schemas.ProductStoreUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager"))
+    current_user=Depends(require_roles("manager", "admin"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:
@@ -179,6 +188,8 @@ def update_product_store(
     store = db.query(models.Store).filter(models.Store.id == payload.store_id).first()
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    if not store.is_open:
+        raise HTTPException(status_code=400, detail="You cannot assign products to a closed store")
 
     product.store_id = store.id
     db.commit()
@@ -191,7 +202,7 @@ def update_product_image(
     product_id: int,
     payload: schemas.ProductImageUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager"))
+    current_user=Depends(require_roles("manager", "admin"))
 ):
     product = db.query(models.Product).filter(models.Product.id == product_id).first()
     if not product:

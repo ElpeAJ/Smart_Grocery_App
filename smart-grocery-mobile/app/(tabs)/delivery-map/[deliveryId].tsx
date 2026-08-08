@@ -1,8 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Redirect, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { Alert, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, Polyline } from 'react-native-maps';
 import * as Location from 'expo-location';
 
 import api from '../../../src/api/client';
@@ -18,6 +17,11 @@ import {
 } from '../../../src/utils/googlePlaces';
 import { fetchGoogleRoute } from '../../../src/utils/googleRoutes';
 import { canHandleDeliveries, getHomeRouteForRole } from '../../../src/utils/roles';
+
+const NativeMaps = Platform.OS === 'web' ? null : require('react-native-maps');
+const NativeMapView = NativeMaps?.default as any;
+const NativeMarker = NativeMaps?.Marker as any;
+const NativePolyline = NativeMaps?.Polyline as any;
 
 const ACCRA_REGION = {
   latitude: 5.6037,
@@ -101,7 +105,7 @@ export default function DeliveryMapScreen() {
   const numericDeliveryId = Number(deliveryId);
   const { user } = useAuth();
   const role = user?.role;
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<any>(null);
   const startSessionTokenRef = useRef(createPlacesSessionToken());
   const destinationSessionTokenRef = useRef(createPlacesSessionToken());
   const [loading, setLoading] = useState(true);
@@ -644,6 +648,29 @@ export default function DeliveryMapScreen() {
     }
   };
 
+  const useReportedDriverLocation = () => {
+    if (
+      !delivery ||
+      typeof delivery.driver_latitude !== 'number' ||
+      typeof delivery.driver_longitude !== 'number' ||
+      !isWithinGhana(delivery.driver_latitude, delivery.driver_longitude)
+    ) {
+      Alert.alert(
+        'Driver location unavailable',
+        'No live driver coordinates have been reported yet. Keep the current route or type a Ghana start point manually.'
+      );
+      return;
+    }
+
+    setDriverCoords({
+      latitude: delivery.driver_latitude,
+      longitude: delivery.driver_longitude,
+    });
+    setStartLabel(delivery.driver_name ? 'Driver location' : 'Current driver location');
+    setLocationMessage(null);
+    setFollowDriver(true);
+  };
+
   const openInGoogleMaps = async () => {
     if (!destinationCoords) {
       Alert.alert(
@@ -755,170 +782,233 @@ export default function DeliveryMapScreen() {
 
         <View style={styles.routeInputsCard}>
           <Text style={styles.routeIntroText}>
-            Adjust the route if needed, then continue in Google Maps for the cleanest live navigation.
+            {role === 'driver'
+              ? 'Adjust the route if needed, then continue in Google Maps for the cleanest live navigation.'
+              : 'Track the live route using the driver coordinates already reported from the delivery app.'}
           </Text>
-          <View style={styles.routeField}>
-            <Text style={styles.routeFieldLabel}>Starting point</Text>
-            <TextInput
-              style={styles.routeFieldInput}
-              value={startLabel}
-              onChangeText={setStartLabel}
-              onFocus={() => setIsEditingStart(true)}
-              onBlur={() => setIsEditingStart(false)}
-              onSubmitEditing={updateStartFromAddress}
-              placeholder="Driver start location"
-              returnKeyType="search"
-            />
-            {GOOGLE_PLACES_ENABLED && isEditingStart && startSuggestions.length > 0 ? (
-              <View style={styles.suggestionsCard}>
-                {startSuggestions.map((suggestion) => (
-                  <TouchableOpacity
-                    key={suggestion.placeId}
-                    style={styles.suggestionRow}
-                    onPress={() => applyStartSuggestion(suggestion)}
-                  >
-                    <Text style={styles.suggestionPrimary}>{suggestion.primaryText}</Text>
-                    {suggestion.secondaryText ? (
-                      <Text style={styles.suggestionSecondary}>{suggestion.secondaryText}</Text>
-                    ) : null}
-                  </TouchableOpacity>
-                ))}
+          {role === 'driver' ? (
+            <>
+              <View style={styles.routeField}>
+                <Text style={styles.routeFieldLabel}>Starting point</Text>
+                <TextInput
+                  style={styles.routeFieldInput}
+                  value={startLabel}
+                  onChangeText={setStartLabel}
+                  onFocus={() => setIsEditingStart(true)}
+                  onBlur={() => setIsEditingStart(false)}
+                  onSubmitEditing={updateStartFromAddress}
+                  placeholder="Driver start location"
+                  returnKeyType="search"
+                />
+                {GOOGLE_PLACES_ENABLED && isEditingStart && startSuggestions.length > 0 ? (
+                  <View style={styles.suggestionsCard}>
+                    {startSuggestions.map((suggestion) => (
+                      <TouchableOpacity
+                        key={suggestion.placeId}
+                        style={styles.suggestionRow}
+                        onPress={() => applyStartSuggestion(suggestion)}
+                      >
+                        <Text style={styles.suggestionPrimary}>{suggestion.primaryText}</Text>
+                        {suggestion.secondaryText ? (
+                          <Text style={styles.suggestionSecondary}>{suggestion.secondaryText}</Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+                {GOOGLE_PLACES_ENABLED && isEditingStart && loadingStartSuggestions ? (
+                  <Text style={styles.inputHelperText}>Loading Ghana start suggestions...</Text>
+                ) : null}
+                {refreshingCurrentLocation ? (
+                  <Text style={styles.inputHelperText}>Refreshing current Ghana location...</Text>
+                ) : null}
               </View>
-            ) : null}
-            {GOOGLE_PLACES_ENABLED && isEditingStart && loadingStartSuggestions ? (
-              <Text style={styles.inputHelperText}>Loading Ghana start suggestions...</Text>
-            ) : null}
-            {refreshingCurrentLocation ? (
-              <Text style={styles.inputHelperText}>Refreshing current Ghana location...</Text>
-            ) : null}
-          </View>
-          <View style={styles.routeField}>
-            <Text style={styles.routeFieldLabel}>Destination</Text>
-            <TextInput
-              style={styles.routeFieldInput}
-              value={destinationLabel}
-              onChangeText={setDestinationLabel}
-              onFocus={() => setIsEditingDestination(true)}
-              onBlur={() => setIsEditingDestination(false)}
-              onSubmitEditing={updateDestinationFromAddress}
-              placeholder="Customer destination"
-              multiline
-            />
-            {GOOGLE_PLACES_ENABLED && isEditingDestination && destinationSuggestions.length > 0 ? (
-              <View style={styles.suggestionsCard}>
-                {destinationSuggestions.map((suggestion) => (
-                  <TouchableOpacity
-                    key={suggestion.placeId}
-                    style={styles.suggestionRow}
-                    onPress={() => applyDestinationSuggestion(suggestion)}
-                  >
-                    <Text style={styles.suggestionPrimary}>{suggestion.primaryText}</Text>
-                    {suggestion.secondaryText ? (
-                      <Text style={styles.suggestionSecondary}>{suggestion.secondaryText}</Text>
-                    ) : null}
-                  </TouchableOpacity>
-                ))}
+              <View style={styles.routeField}>
+                <Text style={styles.routeFieldLabel}>Destination</Text>
+                <TextInput
+                  style={styles.routeFieldInput}
+                  value={destinationLabel}
+                  onChangeText={setDestinationLabel}
+                  onFocus={() => setIsEditingDestination(true)}
+                  onBlur={() => setIsEditingDestination(false)}
+                  onSubmitEditing={updateDestinationFromAddress}
+                  placeholder="Customer destination"
+                  multiline
+                />
+                {GOOGLE_PLACES_ENABLED && isEditingDestination && destinationSuggestions.length > 0 ? (
+                  <View style={styles.suggestionsCard}>
+                    {destinationSuggestions.map((suggestion) => (
+                      <TouchableOpacity
+                        key={suggestion.placeId}
+                        style={styles.suggestionRow}
+                        onPress={() => applyDestinationSuggestion(suggestion)}
+                      >
+                        <Text style={styles.suggestionPrimary}>{suggestion.primaryText}</Text>
+                        {suggestion.secondaryText ? (
+                          <Text style={styles.suggestionSecondary}>{suggestion.secondaryText}</Text>
+                        ) : null}
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+                {GOOGLE_PLACES_ENABLED && isEditingDestination && loadingDestinationSuggestions ? (
+                  <Text style={styles.inputHelperText}>Loading Ghana destination suggestions...</Text>
+                ) : null}
               </View>
-            ) : null}
-            {GOOGLE_PLACES_ENABLED && isEditingDestination && loadingDestinationSuggestions ? (
-              <Text style={styles.inputHelperText}>Loading Ghana destination suggestions...</Text>
-            ) : null}
-          </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.routeField}>
+                <Text style={styles.routeFieldLabel}>Reported driver location</Text>
+                <View style={styles.routeReadOnlyBox}>
+                  <Text style={styles.routeReadOnlyText}>{startLabel || 'Driver location unavailable'}</Text>
+                </View>
+              </View>
+              <View style={styles.routeField}>
+                <Text style={styles.routeFieldLabel}>Destination</Text>
+                <View style={styles.routeReadOnlyBox}>
+                  <Text style={styles.routeReadOnlyText}>{destinationLabel || 'Customer destination unavailable'}</Text>
+                </View>
+              </View>
+            </>
+          )}
           <View style={styles.routeMetaRow}>
-            <TouchableOpacity
-              style={[styles.secondaryRouteButton, refreshingCurrentLocation && styles.disabledButton]}
-              onPress={useCurrentDriverLocation}
-              disabled={refreshingCurrentLocation}
-            >
-              <Text style={styles.secondaryRouteButtonText}>Use current location</Text>
-            </TouchableOpacity>
+            {role === 'driver' ? (
+              <TouchableOpacity
+                style={[styles.secondaryRouteButton, refreshingCurrentLocation && styles.disabledButton]}
+                onPress={useCurrentDriverLocation}
+                disabled={refreshingCurrentLocation}
+              >
+                <Text style={styles.secondaryRouteButtonText}>Use current location</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.secondaryRouteButton} onPress={useReportedDriverLocation}>
+                <Text style={styles.secondaryRouteButtonText}>Use reported driver location</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[
                 styles.secondaryRouteButton,
                 (searchingStart || searchingDestination) && styles.disabledButton,
               ]}
               onPress={async () => {
-                await Promise.all([updateStartFromAddress(), updateDestinationFromAddress()]);
+                if (role === 'driver') {
+                  await Promise.all([updateStartFromAddress(), updateDestinationFromAddress()]);
+                  return;
+                }
+
+                useReportedDriverLocation();
               }}
               disabled={searchingStart || searchingDestination}
             >
-              <Text style={styles.secondaryRouteButtonText}>Refresh route</Text>
+              <Text style={styles.secondaryRouteButtonText}>{role === 'driver' ? 'Refresh route' : 'Refresh live route'}</Text>
             </TouchableOpacity>
           </View>
+          {role !== 'driver' ? (
+            <Text style={styles.inputHelperText}>
+              Manager tracking uses the driver coordinates already reported by the delivery app, so your own device location is not required.
+            </Text>
+          ) : null}
           <TouchableOpacity style={styles.googleMapsButton} onPress={openInGoogleMaps}>
             <Text style={styles.googleMapsButtonText}>Open in Google Maps</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.mapWrap}>
-          <MapView
-            ref={(instance) => {
-              mapRef.current = instance;
-            }}
-            style={styles.map}
-            initialRegion={initialRegion}
-            showsUserLocation={false}
-            onPanDrag={() => {
-              if (followDriver) {
-                setFollowDriver(false);
-              }
-            }}
-          >
-            {driverCoords ? (
-              <Marker coordinate={driverCoords} title="Driver location" pinColor="#16A34A" />
-            ) : null}
-            {destinationCoords ? (
-              <Marker
-                coordinate={destinationCoords}
-                title={delivery.customer_name || 'Customer address'}
-                description={delivery.delivery_address}
-                pinColor="#2563EB"
-              />
-            ) : null}
-          {driverCoords && destinationCoords ? (
-            <Polyline
-              coordinates={googleRoutePolyline.length > 1 ? googleRoutePolyline : [driverCoords, destinationCoords]}
-              strokeColor="#16A34A"
-              strokeWidth={4}
-              lineDashPattern={[1]}
-            />
-          ) : null}
-          </MapView>
-          <View style={styles.mapControls}>
-            <TouchableOpacity
-              style={[styles.mapControlButton, followDriver && styles.mapControlButtonActive]}
-              onPress={() => {
-                setFollowDriver(true);
-                recenterMap('follow');
-              }}
-            >
-              <Text style={[styles.mapControlButtonText, followDriver && styles.mapControlButtonTextActive]}>
-                Follow driver
+          {NativeMapView ? (
+            <>
+              <NativeMapView
+                ref={(instance: any) => {
+                  mapRef.current = instance;
+                }}
+                style={styles.map}
+                initialRegion={initialRegion}
+                showsUserLocation={false}
+                onPanDrag={() => {
+                  if (followDriver) {
+                    setFollowDriver(false);
+                  }
+                }}
+              >
+                {driverCoords ? (
+                  <NativeMarker coordinate={driverCoords} title="Driver location" pinColor="#16A34A" />
+                ) : null}
+                {destinationCoords ? (
+                  <NativeMarker
+                    coordinate={destinationCoords}
+                    title={delivery.customer_name || 'Customer address'}
+                    description={delivery.delivery_address}
+                    pinColor="#2563EB"
+                  />
+                ) : null}
+                {driverCoords && destinationCoords ? (
+                  <NativePolyline
+                    coordinates={googleRoutePolyline.length > 1 ? googleRoutePolyline : [driverCoords, destinationCoords]}
+                    strokeColor="#16A34A"
+                    strokeWidth={4}
+                    lineDashPattern={[1]}
+                  />
+                ) : null}
+              </NativeMapView>
+              <View style={styles.mapControls}>
+                <TouchableOpacity
+                  style={[styles.mapControlButton, followDriver && styles.mapControlButtonActive]}
+                  onPress={() => {
+                    setFollowDriver(true);
+                    recenterMap('follow');
+                  }}
+                >
+                  <Text style={[styles.mapControlButtonText, followDriver && styles.mapControlButtonTextActive]}>
+                    Follow driver
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.mapControlButton}
+                  onPress={() => {
+                    setFollowDriver(false);
+                    recenterMap('overview');
+                  }}
+                >
+                  <Text style={styles.mapControlButtonText}>Overview route</Text>
+                </TouchableOpacity>
+              </View>
+              {routeMetrics ? (
+                <View style={styles.routeBadge}>
+                  <View style={styles.routeMetric}>
+                    <Text style={styles.routeMetricValue}>{routeMetrics.distanceKm.toFixed(1)} km</Text>
+                    <Text style={styles.routeMetricLabel}>Distance</Text>
+                  </View>
+                  <View style={styles.routeBadgeDivider} />
+                  <View style={styles.routeMetric}>
+                    <Text style={styles.routeMetricValue}>{formatEta(routeMetrics.etaMinutes)}</Text>
+                    <Text style={styles.routeMetricLabel}>Estimated arrival</Text>
+                  </View>
+                </View>
+              ) : null}
+            </>
+          ) : (
+            <View style={styles.webMapFallback}>
+              <Text style={styles.webMapFallbackTitle}>Live map preview is mobile-only</Text>
+              <Text style={styles.webMapFallbackText}>
+                The web app can still show delivery details, route distance, ETA, and open the trip in
+                Google Maps, but the embedded native map is disabled on desktop to keep the manager web
+                workspace working reliably.
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.mapControlButton}
-              onPress={() => {
-                setFollowDriver(false);
-                recenterMap('overview');
-              }}
-            >
-              <Text style={styles.mapControlButtonText}>Overview route</Text>
-            </TouchableOpacity>
-          </View>
-          {routeMetrics ? (
-            <View style={styles.routeBadge}>
-              <View style={styles.routeMetric}>
-                <Text style={styles.routeMetricValue}>{routeMetrics.distanceKm.toFixed(1)} km</Text>
-                <Text style={styles.routeMetricLabel}>Distance</Text>
-              </View>
-              <View style={styles.routeBadgeDivider} />
-              <View style={styles.routeMetric}>
-                <Text style={styles.routeMetricValue}>{formatEta(routeMetrics.etaMinutes)}</Text>
-                <Text style={styles.routeMetricLabel}>Estimated arrival</Text>
-              </View>
+              {routeMetrics ? (
+                <View style={styles.webMapMetrics}>
+                  <View style={styles.routeMetric}>
+                    <Text style={styles.routeMetricValue}>{routeMetrics.distanceKm.toFixed(1)} km</Text>
+                    <Text style={styles.routeMetricLabel}>Distance</Text>
+                  </View>
+                  <View style={styles.routeBadgeDivider} />
+                  <View style={styles.routeMetric}>
+                    <Text style={styles.routeMetricValue}>{formatEta(routeMetrics.etaMinutes)}</Text>
+                    <Text style={styles.routeMetricLabel}>Estimated arrival</Text>
+                  </View>
+                </View>
+              ) : null}
             </View>
-          ) : null}
+          )}
         </View>
 
         <View style={styles.detailsCard}>
@@ -1038,6 +1128,19 @@ const styles = StyleSheet.create({
     color: '#0F172A',
     fontWeight: '600',
   },
+  routeReadOnlyBox: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  routeReadOnlyText: {
+    color: '#0F172A',
+    fontWeight: '600',
+    lineHeight: 22,
+  },
   suggestionsCard: {
     borderWidth: 1,
     borderColor: '#E2E8F0',
@@ -1078,6 +1181,33 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  webMapFallback: {
+    flex: 1,
+    paddingHorizontal: 22,
+    paddingVertical: 24,
+    justifyContent: 'center',
+    gap: 12,
+  },
+  webMapFallbackTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  webMapFallbackText: {
+    color: '#475569',
+    lineHeight: 21,
+  },
+  webMapMetrics: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.84)',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+    alignSelf: 'flex-start',
   },
   mapControls: {
     position: 'absolute',

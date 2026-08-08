@@ -1,5 +1,7 @@
 import { GOOGLE_MAPS_API_KEY, GOOGLE_PLACES_ENABLED } from '../config';
 
+// This helper wraps Google's Places API for address autocomplete and place
+// details inside the delivery address and map-picker flows.
 const GOOGLE_PLACES_BASE_URL = 'https://places.googleapis.com/v1';
 
 const ACCRA_LOCATION_BIAS = {
@@ -34,6 +36,8 @@ async function googlePlacesRequest<T>(
   options: RequestInit,
   fieldMask: string
 ): Promise<T> {
+  // All Places requests pass through one helper so the API key, field mask,
+  // and error handling stay consistent and easy to explain during demos.
   const response = await fetch(`${GOOGLE_PLACES_BASE_URL}${endpoint}`, {
     ...options,
     headers: {

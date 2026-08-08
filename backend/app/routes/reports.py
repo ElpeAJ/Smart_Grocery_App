@@ -101,7 +101,7 @@ def build_report_entry(
     picker_user_id: Optional[int] = None,
     completed_at_override: Optional[datetime] = None,
 ) -> schemas.ReportEntry:
-    total_amount = sum(item.quantity * item.unit_price for item in order.items)
+    total_amount = order.total_amount
     delivery_id = order.delivery.id if order.delivery else None
     driver_name = completion_record.driver.full_name if completion_record and completion_record.driver else None
     customer_name = order.user.full_name if order.user else None

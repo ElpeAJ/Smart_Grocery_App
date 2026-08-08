@@ -1,5 +1,7 @@
 import { GOOGLE_MAPS_API_KEY, GOOGLE_PLACES_ENABLED } from '../config';
 
+// This helper talks to Google's Routes API so delivery-map screens can draw
+// a route polyline, distance, and ETA between two map coordinates.
 const GOOGLE_ROUTES_URL = 'https://routes.googleapis.com/directions/v2:computeRoutes';
 
 type RoutePoint = {
@@ -78,6 +80,8 @@ export async function fetchGoogleRoute(params: {
   origin: RoutePoint;
   destination: RoutePoint;
 }): Promise<GoogleRouteResult | null> {
+  // If the Google key is missing, we fail gracefully and let the map screen
+  // fall back instead of crashing the whole delivery experience.
   if (!GOOGLE_PLACES_ENABLED) {
     return null;
   }

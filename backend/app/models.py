@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
+from .tax_utils import compute_line_subtotal, compute_line_total, get_product_tax_rate, get_product_tax_status
 
 
 class User(Base):
@@ -23,6 +24,11 @@ class User(Base):
     chat_messages = relationship("OrderChatMessage", back_populates="sender", cascade="all, delete-orphan")
     reviews = relationship("OrderReview", back_populates="user", cascade="all, delete-orphan")
     confirmed_cash_payments = relationship("PaymentTransaction", back_populates="cash_confirmer")
+    saved_payment_methods = relationship(
+        "SavedPaymentMethod",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
 
 
 class Store(Base):
@@ -31,6 +37,7 @@ class Store(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     location = Column(String, nullable=False)
+    is_open = Column(Integer, nullable=False, default=1)
 
     products = relationship("Product", back_populates="store")
     orders = relationship("Order", back_populates="store")
@@ -73,6 +80,14 @@ class Product(Base):
     def image_url(self):
         return self.media.image_url if self.media else None
 
+    @property
+    def tax_rate(self):
+        return get_product_tax_rate(self)
+
+    @property
+    def tax_status(self):
+        return get_product_tax_status(self)
+
 
 class Order(Base):
     __tablename__ = "orders"
@@ -82,6 +97,7 @@ class Order(Base):
     store_id = Column(Integer, ForeignKey("stores.id"), nullable=True)
     status = Column(String, default="pending")  # pending, accepted, picking, awaiting_review, out_for_delivery, delivered, cancelled
     delivery_window_label = Column(String, nullable=True)
+    review_requested_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="orders")
@@ -127,7 +143,15 @@ class Order(Base):
 
     @property
     def total_amount(self):
-        return float(sum(item.quantity * item.unit_price for item in self.items))
+        return float(sum(item.line_total for item in self.items))
+
+    @property
+    def subtotal_amount(self):
+        return float(sum(item.line_subtotal for item in self.items))
+
+    @property
+    def tax_total(self):
+        return float(sum(item.tax_amount for item in self.items))
 
 
 class OrderItem(Base):
@@ -138,6 +162,8 @@ class OrderItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"))
     quantity = Column(Integer, nullable=False)
     unit_price = Column(Float, nullable=False)
+    tax_rate = Column(Float, nullable=False, default=0.0)
+    tax_amount = Column(Float, nullable=False, default=0.0)
 
     order = relationship("Order", back_populates="items")
     product = relationship("Product", back_populates="order_items")
@@ -161,6 +187,14 @@ class OrderItem(Base):
     @property
     def is_picked(self):
         return bool(self.picking_state and self.picking_state.is_picked)
+
+    @property
+    def line_subtotal(self):
+        return compute_line_subtotal(self.unit_price, self.quantity)
+
+    @property
+    def line_total(self):
+        return compute_line_total(self.unit_price, self.quantity, self.tax_rate)
 
 
 class Delivery(Base):
@@ -218,7 +252,7 @@ class OrderReview(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    rating = Column(Integer, nullable=False)
+    rating = Column(Float, nullable=False)
     comment = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -390,6 +424,7 @@ class PaymentTransaction(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_id = Column(Integer, ForeignKey("orders.id"), unique=True, nullable=False)
+    saved_payment_method_id = Column(Integer, ForeignKey("saved_payment_methods.id"), nullable=True)
     method = Column(String, nullable=False, default="cash_on_delivery")
     provider = Column(String, nullable=True)
     status = Column(String, nullable=False, default="cash_pending")
@@ -409,3 +444,30 @@ class PaymentTransaction(Base):
 
     order = relationship("Order", back_populates="payment")
     cash_confirmer = relationship("User", back_populates="confirmed_cash_payments")
+    saved_payment_method = relationship("SavedPaymentMethod", back_populates="payments")
+
+
+class SavedPaymentMethod(Base):
+    __tablename__ = "saved_payment_methods"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    provider = Column(String, nullable=False, default="paystack")
+    authorization_code = Column(String, nullable=False)
+    signature = Column(String, unique=True, nullable=False)
+    customer_code = Column(String, nullable=True)
+    brand = Column(String, nullable=True)
+    last4 = Column(String, nullable=True)
+    exp_month = Column(String, nullable=True)
+    exp_year = Column(String, nullable=True)
+    bank = Column(String, nullable=True)
+    account_name = Column(String, nullable=True)
+    authorization_channel = Column(String, nullable=True)
+    reusable = Column(Integer, default=1, nullable=False)
+    is_default = Column(Integer, default=0, nullable=False)
+    last_used_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", back_populates="saved_payment_methods")
+    payments = relationship("PaymentTransaction", back_populates="saved_payment_method")

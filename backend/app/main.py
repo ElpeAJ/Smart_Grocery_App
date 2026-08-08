@@ -24,7 +24,7 @@ from .routes.payments import router as payment_router
 Base.metadata.create_all(bind=engine)
 
 
-def ensure_delivery_window_columns():
+def ensure_runtime_schema():
     with engine.begin() as connection:
         order_columns = {
             row[1] for row in connection.execute(text("PRAGMA table_info(orders)")).fetchall()
@@ -35,9 +35,23 @@ def ensure_delivery_window_columns():
         profile_columns = {
             row[1] for row in connection.execute(text("PRAGMA table_info(user_profiles)")).fetchall()
         }
+        payment_transaction_columns = set()
+        store_columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(stores)")).fetchall()
+        }
+        table_names = {
+            row[0] for row in connection.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+        }
+
+        if "payment_transactions" in table_names:
+            payment_transaction_columns = {
+                row[1] for row in connection.execute(text("PRAGMA table_info(payment_transactions)")).fetchall()
+            }
 
         if "delivery_window_label" not in order_columns:
             connection.execute(text("ALTER TABLE orders ADD COLUMN delivery_window_label VARCHAR"))
+        if "review_requested_at" not in order_columns:
+            connection.execute(text("ALTER TABLE orders ADD COLUMN review_requested_at DATETIME"))
 
         if "delivery_window_key" not in delivery_columns:
             connection.execute(text("ALTER TABLE deliveries ADD COLUMN delivery_window_key VARCHAR"))
@@ -67,6 +81,17 @@ def ensure_delivery_window_columns():
             connection.execute(text("ALTER TABLE user_profiles ADD COLUMN delivery_latitude FLOAT"))
         if "delivery_longitude" not in profile_columns:
             connection.execute(text("ALTER TABLE user_profiles ADD COLUMN delivery_longitude FLOAT"))
+        if "payment_transactions" in table_names and "saved_payment_method_id" not in payment_transaction_columns:
+            connection.execute(text("ALTER TABLE payment_transactions ADD COLUMN saved_payment_method_id INTEGER"))
+        if "is_open" not in store_columns:
+            connection.execute(text("ALTER TABLE stores ADD COLUMN is_open INTEGER DEFAULT 1"))
+        order_item_columns = {
+            row[1] for row in connection.execute(text("PRAGMA table_info(order_items)")).fetchall()
+        }
+        if "tax_rate" not in order_item_columns:
+            connection.execute(text("ALTER TABLE order_items ADD COLUMN tax_rate FLOAT DEFAULT 0"))
+        if "tax_amount" not in order_item_columns:
+            connection.execute(text("ALTER TABLE order_items ADD COLUMN tax_amount FLOAT DEFAULT 0"))
 
 DEFAULT_PRODUCT_CATEGORIES = [
     "Fresh Fruits",
@@ -122,7 +147,7 @@ def seed_default_categories():
 
 
 seed_default_categories()
-ensure_delivery_window_columns()
+ensure_runtime_schema()
 
 app = FastAPI(
     title="Smart Grocery Store API",

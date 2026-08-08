@@ -9,11 +9,21 @@ import * as WebBrowser from 'expo-web-browser';
 
 import api from '../src/api/client';
 import { useAuth } from '../src/context/AuthContext';
-import type { Cart, DeliveryWindow, Order, PaymentVerificationResponse, UserProfile } from '../src/types/api';
+import type {
+  Cart,
+  DeliveryWindow,
+  Order,
+  PaymentVerificationResponse,
+  SavedPaymentMethod,
+  UserProfile,
+} from '../src/types/api';
 import { formatCedi } from '../src/utils/currency';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../src/utils/haptics';
 import { getHomeRouteForRole, isCustomerRole } from '../src/utils/roles';
 
+// Checkout is where online payment hands off to Paystack.
+// The app creates the order through our backend first, then opens the hosted
+// Paystack page only when the selected payment method is card or mobile money.
 export default function CheckoutScreen() {
   const params = useLocalSearchParams<{
     pickedAddress?: string;
@@ -34,6 +44,7 @@ export default function CheckoutScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [cart, setCart] = useState<Cart | null>(null);
   const [reviewModalOpen, setReviewModalOpen] = useState(false);
+  const [savedPaymentMethods, setSavedPaymentMethods] = useState<SavedPaymentMethod[]>([]);
   const selectedDeliveryWindow =
     deliveryWindows.find((window) => window.key === selectedDeliveryWindowKey) ?? null;
   const cartItems = useMemo(() => cart?.items ?? [], [cart]);
@@ -51,10 +62,11 @@ export default function CheckoutScreen() {
   useEffect(() => {
     const loadProfile = async () => {
       try {
-        const [profileResponse, windowsResponse, cartResponse] = await Promise.all([
+        const [profileResponse, windowsResponse, cartResponse, savedMethodsResponse] = await Promise.all([
           api.get<UserProfile>('/profile/me'),
           api.get<DeliveryWindow[]>('/cart/delivery-windows'),
           api.get<Cart>('/cart/'),
+          api.get<SavedPaymentMethod[]>('/payments/saved-methods'),
         ]);
         if (!hasReturnedPickedLocation && profileResponse.data.delivery_address) {
           setDeliveryAddress(profileResponse.data.delivery_address);
@@ -66,6 +78,7 @@ export default function CheckoutScreen() {
         setDeliveryWindows(windowsResponse.data);
         setSelectedDeliveryWindowKey(windowsResponse.data[0]?.key ?? '');
         setCart(cartResponse.data);
+        setSavedPaymentMethods(savedMethodsResponse.data);
       } catch {
         // Keep checkout usable even if the profile request fails.
       } finally {
@@ -135,8 +148,6 @@ export default function CheckoutScreen() {
         delivery_longitude: deliveryLongitude,
         payment_method: paymentMethod,
         delivery_window_key: selectedDeliveryWindowKey,
-        paystack_callback_url:
-          paymentMethod === 'cash_on_delivery' ? undefined : Linking.createURL('/payments/paystack'),
       });
 
       const createdOrder = checkoutResponse.data;
@@ -152,10 +163,13 @@ export default function CheckoutScreen() {
       }
 
       if (createdOrder.payment?.authorization_url && createdOrder.payment.reference) {
+        // We intentionally use Paystack's hosted checkout page here instead of
+        // collecting card details directly in the app.
         const callbackUrl = Linking.createURL('/payments/paystack');
         const authResult = await WebBrowser.openAuthSessionAsync(
           createdOrder.payment.authorization_url,
-          callbackUrl
+          callbackUrl,
+          { preferEphemeralSession: true }
         );
 
         if (authResult.type === 'cancel' || authResult.type === 'dismiss') {
@@ -176,6 +190,9 @@ export default function CheckoutScreen() {
           router.replace('/(tabs)/orders');
           return;
         }
+
+        const refreshedSavedMethods = await api.get<SavedPaymentMethod[]>('/payments/saved-methods');
+        setSavedPaymentMethods(refreshedSavedMethods.data);
       }
 
       await triggerSuccessHaptic();
@@ -331,6 +348,56 @@ export default function CheckoutScreen() {
               );
             })}
           </View>
+
+          {paymentMethod === 'card' ? (
+            <View style={styles.savedMethodsSection}>
+              <Text style={styles.savedMethodsTitle}>Saved payment methods</Text>
+              <Text style={styles.savedMethodsHelper}>
+                SmartGrocery uses Paystack’s secure hosted payment page for card entry. Any reusable card Paystack returns after a successful payment will appear here for future checkout improvements.
+              </Text>
+              {savedPaymentMethods.length ? (
+                savedPaymentMethods.map((method) => (
+                  <View key={method.id} style={styles.savedMethodRow}>
+                    <View style={styles.savedMethodCopy}>
+                      <Text style={styles.savedMethodLabel}>
+                        {method.brand || 'Saved card'} {method.last4 ? `•••• ${method.last4}` : ''}
+                      </Text>
+                      <Text style={styles.savedMethodMeta}>
+                        {method.bank || 'Paystack'}
+                        {method.exp_month && method.exp_year ? ` · exp ${method.exp_month}/${method.exp_year}` : ''}
+                      </Text>
+                    </View>
+                    {method.is_default ? <Text style={styles.savedMethodBadge}>Default</Text> : null}
+                  </View>
+                ))
+              ) : (
+                <View style={styles.savedMethodEmpty}>
+                  <Ionicons name="card-outline" size={18} color="#64748B" />
+                  <Text style={styles.savedMethodEmptyText}>
+                    No saved cards yet. Your first successful card payment will populate this list.
+                  </Text>
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          {cart ? (
+            <View style={styles.checkoutTotalsCard}>
+              <Text style={styles.checkoutTotalsTitle}>Order pricing</Text>
+              <View style={styles.checkoutTotalsRow}>
+                <Text style={styles.checkoutTotalsLabel}>Subtotal</Text>
+                <Text style={styles.checkoutTotalsValue}>{formatCedi(cart.subtotal_amount ?? 0)}</Text>
+              </View>
+              <View style={styles.checkoutTotalsRow}>
+                <Text style={styles.checkoutTotalsLabel}>VAT</Text>
+                <Text style={styles.checkoutTotalsValue}>{formatCedi(cart.tax_total ?? 0)}</Text>
+              </View>
+              <View style={[styles.checkoutTotalsRow, styles.checkoutTotalsRowStrong]}>
+                <Text style={styles.checkoutTotalsStrongLabel}>Total to pay</Text>
+                <Text style={styles.checkoutTotalsStrongValue}>{formatCedi(cart.total_amount ?? 0)}</Text>
+              </View>
+            </View>
+          ) : null}
         </View>
 
         <TouchableOpacity
@@ -395,18 +462,31 @@ export default function CheckoutScreen() {
                       <Text style={styles.modalItemMeta}>
                         {item.quantity} x {formatCedi(item.product.price)}
                       </Text>
+                      <Text style={styles.modalItemTaxMeta}>
+                        {item.product.tax_status === 'tax_exempt' ? 'Tax exempt raw food' : `VAT ${formatCedi(item.line_tax)}`}
+                      </Text>
                     </View>
                     <Text style={styles.modalItemTotal}>
-                      {formatCedi(item.quantity * item.product.price)}
+                      {formatCedi(item.line_total)}
                     </Text>
                   </View>
                 </View>
               ))}
             </ScrollView>
 
-            <View style={styles.modalTotalRow}>
-              <Text style={styles.modalTotalLabel}>Estimated total</Text>
-              <Text style={styles.modalTotalValue}>{formatCedi(cart?.total_amount ?? 0)}</Text>
+            <View style={styles.modalTotalsCard}>
+              <View style={styles.modalTotalRow}>
+                <Text style={styles.modalTotalLabel}>Subtotal</Text>
+                <Text style={styles.modalTotalValue}>{formatCedi(cart?.subtotal_amount ?? 0)}</Text>
+              </View>
+              <View style={styles.modalTotalRow}>
+                <Text style={styles.modalTotalLabel}>VAT</Text>
+                <Text style={styles.modalTotalValue}>{formatCedi(cart?.tax_total ?? 0)}</Text>
+              </View>
+              <View style={[styles.modalTotalRow, styles.modalTotalRowStrong]}>
+                <Text style={styles.modalTotalStrongLabel}>Estimated total</Text>
+                <Text style={styles.modalTotalStrongValue}>{formatCedi(cart?.total_amount ?? 0)}</Text>
+              </View>
             </View>
 
             <TouchableOpacity
@@ -636,6 +716,113 @@ const styles = StyleSheet.create({
   paymentChipTextActive: {
     color: '#166534',
   },
+  savedMethodsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    gap: 10,
+  },
+  savedMethodsTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  savedMethodsHelper: {
+    color: '#64748B',
+    lineHeight: 19,
+  },
+  savedMethodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: '#F8FAFC',
+  },
+  savedMethodCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  savedMethodLabel: {
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  savedMethodMeta: {
+    color: '#64748B',
+    fontSize: 13,
+  },
+  savedMethodBadge: {
+    backgroundColor: '#DCFCE7',
+    color: '#166534',
+    fontSize: 12,
+    fontWeight: '700',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    overflow: 'hidden',
+  },
+  savedMethodEmpty: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    backgroundColor: '#F8FAFC',
+  },
+  savedMethodEmptyText: {
+    flex: 1,
+    color: '#64748B',
+    lineHeight: 19,
+  },
+  checkoutTotalsCard: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+    gap: 10,
+  },
+  checkoutTotalsTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  checkoutTotalsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  checkoutTotalsRowStrong: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  checkoutTotalsLabel: {
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  checkoutTotalsValue: {
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  checkoutTotalsStrongLabel: {
+    color: '#0F172A',
+    fontWeight: '800',
+  },
+  checkoutTotalsStrongValue: {
+    color: '#166534',
+    fontWeight: '800',
+  },
   reviewButton: {
     marginTop: 18,
     backgroundColor: '#FFFFFF',
@@ -753,13 +940,25 @@ const styles = StyleSheet.create({
     marginTop: 4,
     color: '#64748B',
   },
+  modalItemTaxMeta: {
+    marginTop: 4,
+    color: '#92400E',
+    fontWeight: '600',
+  },
   modalItemTotal: {
     color: '#16A34A',
     fontWeight: '800',
   },
-  modalTotalRow: {
+  modalTotalsCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 8,
     marginTop: 6,
     marginBottom: 16,
+  },
+  modalTotalRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -769,6 +968,20 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   modalTotalValue: {
+    color: '#0F172A',
+    fontWeight: '700',
+  },
+  modalTotalRowStrong: {
+    marginTop: 4,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#E2E8F0',
+  },
+  modalTotalStrongLabel: {
+    color: '#0F172A',
+    fontWeight: '800',
+  },
+  modalTotalStrongValue: {
     color: '#0F172A',
     fontSize: 20,
     fontWeight: '800',

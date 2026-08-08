@@ -6,6 +6,8 @@ export type Product = {
   price: number;
   stock_quantity: number;
   status: 'in_stock' | 'out_of_stock';
+  tax_rate: number;
+  tax_status: 'tax_exempt' | 'vat_15';
   category: ProductCategory | null;
   image_url: string | null;
 };
@@ -14,6 +16,7 @@ export type Store = {
   id: number;
   name: string;
   location: string;
+  is_open: boolean;
 };
 
 export type ProductCategory = {
@@ -43,6 +46,9 @@ export type CartItem = {
   id: number;
   product_id: number;
   quantity: number;
+  line_subtotal: number;
+  line_tax: number;
+  line_total: number;
   product: Product;
 };
 
@@ -50,6 +56,8 @@ export type Cart = {
   id: number;
   store_id: number | null;
   items: CartItem[];
+  subtotal_amount: number;
+  tax_total: number;
   total_amount: number;
 };
 
@@ -76,12 +84,33 @@ export type PaymentTransaction = {
   updated_at: string;
 };
 
+export type SavedPaymentMethod = {
+  id: number;
+  provider: string;
+  brand: string | null;
+  last4: string | null;
+  exp_month: string | null;
+  exp_year: string | null;
+  bank: string | null;
+  account_name: string | null;
+  authorization_channel: string | null;
+  reusable: boolean;
+  is_default: boolean;
+  last_used_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type OrderItem = {
   id: number;
   product_id: number;
   product_name: string | null;
   quantity: number;
   unit_price: number;
+  tax_rate: number;
+  tax_amount: number;
+  line_subtotal: number;
+  line_total: number;
   is_picked: boolean;
 };
 
@@ -102,11 +131,14 @@ export type Order = {
   store_id: number | null;
   store_name: string | null;
   delivery_window_label: string | null;
+  review_requested_at: string | null;
   status: 'pending' | 'accepted' | 'picking' | 'awaiting_review' | 'out_for_delivery' | 'delivered' | 'cancelled';
   created_at: string;
   items: OrderItem[];
   all_items_picked: boolean;
   review: OrderReview | null;
+  subtotal_amount: number;
+  tax_total: number;
   total_amount: number;
   payment: PaymentTransaction | null;
 };

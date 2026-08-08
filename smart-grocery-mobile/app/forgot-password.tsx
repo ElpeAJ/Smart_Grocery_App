@@ -1,43 +1,55 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useAuth } from '../src/context/AuthContext';
+import api from '../src/api/client';
 import AuthBasketVisual from '../src/components/AuthBasketVisual';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../src/utils/haptics';
 
-export default function LoginScreen() {
+export default function ForgotPasswordScreen() {
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const { isAuthenticated, login } = useAuth();
 
-  useEffect(() => {
-    if (isAuthenticated) {
-      router.replace('/(tabs)');
+  const handleResetPassword = async () => {
+    if (!email.trim() || !newPassword || !confirmPassword) {
+      Alert.alert('Missing details', 'Enter your email and your new password twice.');
+      return;
     }
-  }, [isAuthenticated]);
 
-  const handleLogin = async () => {
-    if (!email.trim() || !password) {
-      Alert.alert('Missing details', 'Enter both your email and password.');
+    if (newPassword.length < 8) {
+      Alert.alert('Password too short', 'Use a password with at least 8 characters.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Passwords do not match', 'Make sure both password fields are identical.');
       return;
     }
 
     await triggerLightHaptic();
     setSubmitting(true);
-    const result = await login(email, password);
-    setSubmitting(false);
 
-    if (!result.success) {
-      Alert.alert('Login failed', result.error);
-      return;
+    try {
+      const response = await api.post<{ detail: string }>('/auth/forgot-password', {
+        email: email.trim(),
+        new_password: newPassword,
+      });
+      await triggerSuccessHaptic();
+      Alert.alert('Password reset', response.data.detail, [
+        {
+          text: 'OK',
+          onPress: () => router.replace('/login'),
+        },
+      ]);
+    } catch (error: any) {
+      Alert.alert('Reset failed', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setSubmitting(false);
     }
-
-    await triggerSuccessHaptic();
-    router.replace('/(tabs)');
   };
 
   return (
@@ -45,11 +57,19 @@ export default function LoginScreen() {
       <View style={styles.hero}>
         <AuthBasketVisual />
         <Text style={styles.eyebrow}>Smart Grocery</Text>
-        <Text style={styles.title}>Welcome back</Text>
-        <Text style={styles.subtitle}>Sign in to shop fresh groceries, track orders, and manage your day smoothly.</Text>
+        <Text style={styles.title}>Reset password</Text>
+        <Text style={styles.subtitle}>
+          For the presentation build, a user can reset their password with email and a new password directly.
+        </Text>
       </View>
 
       <View style={styles.card}>
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerText}>
+            Demo mode: production reset would normally use email or OTP verification.
+          </Text>
+        </View>
+
         <View style={styles.fieldGroup}>
           <Text style={styles.fieldLabel}>Email address</Text>
           <View style={styles.inputWrap}>
@@ -67,46 +87,51 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.fieldGroup}>
-          <Text style={styles.fieldLabel}>Password</Text>
+          <Text style={styles.fieldLabel}>New password</Text>
           <View style={styles.inputWrap}>
             <Ionicons name="lock-closed-outline" size={18} color="#64748B" />
             <TextInput
-              placeholder="Enter your password"
+              placeholder="Enter a new password"
               placeholderTextColor="#94A3B8"
               style={styles.input}
               secureTextEntry
-              value={password}
-              onChangeText={setPassword}
+              value={newPassword}
+              onChangeText={setNewPassword}
+            />
+          </View>
+        </View>
+
+        <View style={styles.fieldGroup}>
+          <Text style={styles.fieldLabel}>Confirm password</Text>
+          <View style={styles.inputWrap}>
+            <Ionicons name="checkmark-circle-outline" size={18} color="#64748B" />
+            <TextInput
+              placeholder="Repeat the new password"
+              placeholderTextColor="#94A3B8"
+              style={styles.input}
+              secureTextEntry
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
             />
           </View>
         </View>
 
         <TouchableOpacity
-          style={styles.forgotPasswordCta}
-          onPress={async () => {
-            await triggerLightHaptic();
-            router.push('/forgot-password');
-          }}
-        >
-          <Text style={styles.forgotPasswordText}>Forgot password?</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
           style={[styles.button, submitting && styles.buttonDisabled]}
-          onPress={handleLogin}
+          onPress={handleResetPassword}
           disabled={submitting}
         >
-          <Text style={styles.buttonText}>{submitting ? 'Signing in...' : 'Login'}</Text>
+          <Text style={styles.buttonText}>{submitting ? 'Resetting...' : 'Reset Password'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.secondaryCta}
           onPress={async () => {
             await triggerLightHaptic();
-            router.push('/register');
+            router.replace('/login');
           }}
         >
-          <Text style={styles.secondaryText}>Create an account</Text>
+          <Text style={styles.secondaryText}>Back to login</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -155,6 +180,18 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
   },
+  infoBanner: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 16,
+  },
+  infoBannerText: {
+    color: '#92400E',
+    fontWeight: '700',
+    lineHeight: 20,
+  },
   fieldGroup: {
     marginBottom: 16,
   },
@@ -186,15 +223,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     marginTop: 4,
-  },
-  forgotPasswordCta: {
-    alignSelf: 'flex-end',
-    marginBottom: 8,
-  },
-  forgotPasswordText: {
-    color: '#2563EB',
-    fontSize: 13,
-    fontWeight: '700',
   },
   buttonDisabled: {
     opacity: 0.7,

@@ -185,6 +185,16 @@ export default function CartScreen() {
               <View style={styles.totalCard}>
                 <Text style={styles.totalLabel}>Estimated total</Text>
                 <Text style={styles.total}>{formatCedi(cart?.total_amount ?? 0)}</Text>
+                <View style={styles.totalBreakdown}>
+                  <View style={styles.totalBreakdownRow}>
+                    <Text style={styles.totalBreakdownLabel}>Subtotal</Text>
+                    <Text style={styles.totalBreakdownValue}>{formatCedi(cart?.subtotal_amount ?? 0)}</Text>
+                  </View>
+                  <View style={styles.totalBreakdownRow}>
+                    <Text style={styles.totalBreakdownLabel}>VAT</Text>
+                    <Text style={styles.totalBreakdownValue}>{formatCedi(cart?.tax_total ?? 0)}</Text>
+                  </View>
+                </View>
                 <Text style={styles.totalHint}>Delivery details and final scheduling will be confirmed on the next screen.</Text>
               </View>
               <TouchableOpacity style={styles.checkoutButton} onPress={() => router.push('/checkout')}>
@@ -215,6 +225,13 @@ export default function CartScreen() {
                 </View>
               </View>
 
+              <View style={styles.taxMetaRow}>
+                <Text style={styles.taxMetaLabel}>
+                  {item.product.tax_status === 'tax_exempt' ? 'Tax exempt raw food' : 'Processed item · 15% VAT'}
+                </Text>
+                <Text style={styles.taxMetaValue}>Tax: {formatCedi(item.line_tax)}</Text>
+              </View>
+
               <View style={styles.quantityRow}>
                 <TouchableOpacity
                   style={styles.quantityButton}
@@ -233,9 +250,11 @@ export default function CartScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.subtotal}>
-                Subtotal: {formatCedi(item.quantity * item.product.price)}
-              </Text>
+              <View style={styles.lineTotalsCard}>
+                <Text style={styles.lineTotalsText}>Subtotal: {formatCedi(item.line_subtotal)}</Text>
+                <Text style={styles.lineTotalsText}>VAT: {formatCedi(item.line_tax)}</Text>
+                <Text style={styles.lineTotalsStrong}>Line total: {formatCedi(item.line_total)}</Text>
+              </View>
             </View>
           );
         }}
@@ -421,6 +440,23 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#16A34A',
   },
+  taxMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  taxMetaLabel: {
+    flex: 1,
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  taxMetaValue: {
+    color: '#92400E',
+    fontSize: 13,
+    fontWeight: '700',
+  },
   quantityRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -450,13 +486,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#0F172A',
   },
-  subtotal: {
-    textAlign: 'center',
-    fontWeight: '600',
-    color: '#334155',
+  lineTotalsCard: {
     backgroundColor: '#FFF8EB',
     borderRadius: 16,
     paddingVertical: 12,
+    paddingHorizontal: 14,
+    gap: 6,
+  },
+  lineTotalsText: {
+    textAlign: 'center',
+    fontWeight: '600',
+    color: '#334155',
+  },
+  lineTotalsStrong: {
+    textAlign: 'center',
+    fontWeight: '800',
+    color: '#92400E',
   },
   footer: {
     paddingTop: 6,
@@ -486,6 +531,28 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#0F172A',
     textAlign: 'center',
+  },
+  totalBreakdown: {
+    alignSelf: 'stretch',
+    gap: 6,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  totalBreakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  totalBreakdownLabel: {
+    color: '#64748B',
+    fontWeight: '700',
+  },
+  totalBreakdownValue: {
+    color: '#0F172A',
+    fontWeight: '700',
   },
   totalHint: {
     textAlign: 'center',

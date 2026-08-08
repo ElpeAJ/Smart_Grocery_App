@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "smart-grocery-mobile",
-    "slug": "smart-grocery-mobile",
+    "name": "SmartGrocery",
+    "slug": "smart-grocery",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "smartgrocerymobile",
+    "scheme": "smartgrocery",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {

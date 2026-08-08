@@ -13,9 +13,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
 import type { OrderChatSummary, ReportEntry, ReportPeriod, ReportSummary } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
@@ -245,6 +247,18 @@ function formatOrderStatus(status: ReportEntry['order_status']) {
     case 'cancelled':
       return 'Cancelled';
   }
+}
+
+function getStarIconName(rating: number, starNumber: number): keyof typeof Ionicons.glyphMap {
+  if (rating >= starNumber) {
+    return 'star';
+  }
+
+  if (rating >= starNumber - 0.5) {
+    return 'star-half';
+  }
+
+  return 'star-outline';
 }
 
 function getStatusBreakdown(entries: ReportEntry[]) {
@@ -494,10 +508,18 @@ function EntryCard({
       {item.review ? (
         <View style={styles.reviewSummaryCard}>
           <Text style={styles.reviewSummaryTitle}>Customer review</Text>
-          <Text style={styles.reviewSummaryRating}>
-            {'★'.repeat(item.review.rating)}
-            {'☆'.repeat(5 - item.review.rating)}
-          </Text>
+          <View style={styles.reviewSummaryRatingRow}>
+            {Array.from({ length: 5 }, (_, index) => (
+              <Ionicons
+                key={`review-star-${item.order_id}-${index + 1}`}
+                name={getStarIconName(item.review!.rating, index + 1)}
+                size={18}
+                color="#D97706"
+                style={styles.reviewSummaryStar}
+              />
+            ))}
+            <Text style={styles.reviewSummaryRating}>{item.review.rating.toFixed(1)}</Text>
+          </View>
           {item.review.comment ? (
             <Text style={styles.reviewSummaryComment}>{item.review.comment}</Text>
           ) : (
@@ -632,6 +654,12 @@ export default function ReportsScreen() {
         ListHeaderComponent={
           <View style={styles.headerWrap}>
             <View style={styles.heroCard}>
+              <UserAvatarBadge
+                fullName={user?.full_name}
+                email={user?.email}
+                role={user?.role}
+                style={styles.heroAvatar}
+              />
               <Text style={styles.eyebrow}>Performance</Text>
               <Text style={styles.title}>{heading}</Text>
               <Text style={styles.subtitle}>{subtitle}</Text>
@@ -933,6 +961,9 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     padding: 22,
   },
+  heroAvatar: {
+    marginBottom: 14,
+  },
   eyebrow: {
     color: '#C7F9CC',
     textTransform: 'uppercase',
@@ -1226,10 +1257,18 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   reviewSummaryRating: {
-    marginTop: 6,
     color: '#D97706',
     fontWeight: '800',
-    letterSpacing: 1,
+    fontSize: 15,
+  },
+  reviewSummaryRatingRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  reviewSummaryStar: {
+    marginRight: 1,
   },
   reviewSummaryComment: {
     marginTop: 6,

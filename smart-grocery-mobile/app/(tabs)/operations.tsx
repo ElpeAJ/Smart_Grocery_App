@@ -13,11 +13,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import api from '../../src/api/client';
 import LoadingScreen from '../../src/components/LoadingScreen';
+import UserAvatarBadge from '../../src/components/UserAvatarBadge';
 import { useAuth } from '../../src/context/AuthContext';
 import type { Order, OrderChatSummary, Store } from '../../src/types/api';
 import { formatCedi } from '../../src/utils/currency';
 import { triggerLightHaptic, triggerSuccessHaptic } from '../../src/utils/haptics';
 import { canHandleOperations, getHomeRouteForRole } from '../../src/utils/roles';
+import { getOrderStatusTone } from '../../src/utils/status';
 
 const STAFF_VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking'];
 const MANAGER_VISIBLE_STATUSES: Order['status'][] = ['pending', 'accepted', 'picking', 'awaiting_review'];
@@ -54,7 +56,7 @@ export default function OperationsScreen() {
   const [busyOrderId, setBusyOrderId] = useState<number | null>(null);
 
   const canSubmitForReview = role === 'staff' || role === 'manager';
-  const canReleaseToDelivery = role === 'manager';
+  const canReleaseToDelivery = role === 'manager' || role === 'staff';
 
   const loadOperations = useCallback(async () => {
     try {
@@ -158,6 +160,25 @@ export default function OperationsScreen() {
     }
   };
 
+  const verifyOnlinePayment = async (orderId: number) => {
+    await triggerLightHaptic();
+    setBusyOrderId(orderId);
+
+    try {
+      const response = await api.post(`/payments/orders/${orderId}/verify-paystack`);
+      await loadOperations();
+      await triggerSuccessHaptic();
+      Alert.alert(
+        response.data?.verified ? 'Payment confirmed' : 'Payment still pending',
+        response.data?.detail || 'The Paystack payment status was refreshed.'
+      );
+    } catch (error: any) {
+      Alert.alert('Could not verify payment', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
+
   if (loading) {
     return <LoadingScreen label="Loading operations..." />;
   }
@@ -187,6 +208,12 @@ export default function OperationsScreen() {
         ListHeaderComponent={
           <View style={styles.header}>
             <View style={styles.heroCard}>
+              <UserAvatarBadge
+                fullName={user?.full_name}
+                email={user?.email}
+                role={user?.role}
+                style={styles.heroAvatar}
+              />
               <Text style={styles.eyebrow}>FULFILLMENT WORKFLOW</Text>
               <Text style={styles.title}>Operations Queue</Text>
               <Text style={styles.subtitle}>
@@ -223,6 +250,15 @@ export default function OperationsScreen() {
             item.store_name || stores.find((store) => store.id === item.store_id)?.name || 'Unassigned';
           const isReadyForReview = item.all_items_picked;
           const isAwaitingReview = item.status === 'awaiting_review';
+          const hasPendingOnlinePayment =
+            item.payment?.method !== 'cash_on_delivery' &&
+            Boolean(item.payment) &&
+            item.payment?.status !== 'paid';
+          const canUseStaffFallbackApproval =
+            role === 'staff' &&
+            isAwaitingReview &&
+            Boolean(item.review_requested_at) &&
+            Date.now() - new Date(item.review_requested_at!).getTime() >= 10 * 60 * 1000;
 
           return (
             <View style={[styles.card, isReadyForReview && styles.readyCard]}>
@@ -233,7 +269,11 @@ export default function OperationsScreen() {
                 <View style={styles.cardText}>
                   <Text style={styles.orderTitle}>Order #{item.id}</Text>
                   <Text style={styles.metaText}>Customer: {item.customer_name || `Customer #${item.user_id}`}</Text>
-                  <Text style={styles.metaText}>Status: {formatOrderStatus(item.status)}</Text>
+                  <View style={[styles.statusPill, getOrderStatusTone(item.status)]}>
+                    <Text style={[styles.statusPillText, { color: getOrderStatusTone(item.status).textColor }]}>
+                      {formatOrderStatus(item.status)}
+                    </Text>
+                  </View>
                   <Text style={styles.metaText}>Store: {storeName}</Text>
                   {item.delivery_window_label ? (
                     <Text style={styles.metaText}>Delivery window: {item.delivery_window_label}</Text>
@@ -316,6 +356,15 @@ export default function OperationsScreen() {
                     </View>
                   ) : null}
 
+                  {hasPendingOnlinePayment ? (
+                    <View style={styles.paymentBanner}>
+                      <Text style={styles.paymentBannerTitle}>Online payment pending confirmation</Text>
+                      <Text style={styles.paymentBannerText}>
+                        This order cannot be released to delivery until Paystack confirms the payment status.
+                      </Text>
+                    </View>
+                  ) : null}
+
                   {isReadyForReview && !isAwaitingReview && canSubmitForReview ? (
                     <TouchableOpacity
                       style={[styles.releaseButton, busyOrderId === item.id && styles.disabledButton]}
@@ -328,14 +377,30 @@ export default function OperationsScreen() {
                     </TouchableOpacity>
                   ) : null}
 
-                  {isAwaitingReview && canReleaseToDelivery ? (
+                  {isAwaitingReview && hasPendingOnlinePayment && role === 'manager' ? (
+                    <TouchableOpacity
+                      style={[styles.verifyPaymentButton, busyOrderId === item.id && styles.disabledButton]}
+                      onPress={() => verifyOnlinePayment(item.id)}
+                      disabled={busyOrderId === item.id}
+                    >
+                      <Text style={styles.verifyPaymentButtonText}>
+                        {busyOrderId === item.id ? 'Checking Paystack...' : 'Verify Paystack Payment'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {isAwaitingReview && canReleaseToDelivery && (role !== 'staff' || canUseStaffFallbackApproval) ? (
                     <TouchableOpacity
                       style={[styles.releaseButton, busyOrderId === item.id && styles.disabledButton]}
                       onPress={() => releaseToDelivery(item.id)}
                       disabled={busyOrderId === item.id}
                     >
                       <Text style={styles.releaseButtonText}>
-                        {busyOrderId === item.id ? 'Sending...' : 'Approve for Delivery'}
+                        {busyOrderId === item.id
+                          ? 'Sending...'
+                          : role === 'staff'
+                            ? 'Approve for Delivery (Fallback)'
+                            : 'Approve for Delivery'}
                       </Text>
                     </TouchableOpacity>
                   ) : null}
@@ -346,7 +411,9 @@ export default function OperationsScreen() {
 
                   {isAwaitingReview && role === 'staff' ? (
                     <Text style={styles.readyText}>
-                      Waiting for manager approval before driver assignment.
+                      {canUseStaffFallbackApproval
+                        ? 'Manager review window has elapsed. You can release this order as fallback approver.'
+                        : 'Waiting for manager approval before driver assignment. Staff fallback unlocks after 10 minutes.'}
                     </Text>
                   ) : null}
                 </View>
@@ -383,6 +450,9 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 12 },
     elevation: 6,
+  },
+  heroAvatar: {
+    marginBottom: 4,
   },
   eyebrow: {
     color: '#CFE9D8',
@@ -460,6 +530,19 @@ const styles = StyleSheet.create({
   metaText: {
     marginTop: 6,
     color: '#475569',
+  },
+  statusPill: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+  },
+  statusPillText: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'capitalize',
   },
   summaryWrap: {
     alignItems: 'flex-end',
@@ -577,6 +660,35 @@ const styles = StyleSheet.create({
   readyBannerText: {
     color: '#166534',
     fontWeight: '700',
+  },
+  paymentBanner: {
+    marginTop: 12,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  paymentBannerTitle: {
+    color: '#92400E',
+    fontWeight: '800',
+  },
+  paymentBannerText: {
+    color: '#92400E',
+    lineHeight: 20,
+  },
+  verifyPaymentButton: {
+    marginTop: 12,
+    backgroundColor: '#F59E0B',
+    paddingVertical: 14,
+    borderRadius: 16,
+    alignItems: 'center',
+  },
+  verifyPaymentButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '800',
   },
   releaseButton: {
     marginTop: 14,

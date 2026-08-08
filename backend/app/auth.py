@@ -55,6 +55,24 @@ def login_user(
     }
 
 
+@router.post("/forgot-password")
+def forgot_password(
+    payload: schemas.PasswordResetRequest,
+    db: Session = Depends(get_db)
+):
+    # This is a presentation-safe reset flow for the demo app.
+    # A production deployment should replace this with an email or OTP token flow.
+    db_user = db.query(models.User).filter(models.User.email == payload.email).first()
+
+    if not db_user:
+        return {"detail": "If an account exists for that email, the password has been reset."}
+
+    db_user.password = hash_password(payload.new_password)
+    db.commit()
+
+    return {"detail": "Password reset successful. You can now sign in with the new password."}
+
+
 @router.get("/me", response_model=schemas.UserResponse)
 def get_me(current_user: models.User = Depends(get_current_user)):
     return current_user

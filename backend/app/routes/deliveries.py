@@ -35,7 +35,7 @@ def mark_delivery_completed(db: Session, delivery: models.Delivery):
 def create_delivery(
     delivery: schemas.DeliveryCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff", "admin"))
 ):
     order = db.query(models.Order).filter(models.Order.id == delivery.order_id).first()
     if not order:
@@ -124,7 +124,7 @@ def assign_delivery_driver(
     delivery_id: int,
     payload: schemas.DeliveryAssignRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager"))
+    current_user=Depends(require_roles("manager", "admin"))
 ):
     delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
 
@@ -180,7 +180,7 @@ def update_delivery_status(
     delivery_id: int,
     status: Literal["assigned", "on_the_way", "delivered"],
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager", "driver"))
+    current_user=Depends(require_roles("manager", "admin", "driver"))
 ):
     delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
 
@@ -226,7 +226,7 @@ def update_delivery_location(
     delivery_id: int,
     payload: schemas.DeliveryLocationUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager", "driver"))
+    current_user=Depends(require_roles("manager", "admin", "driver"))
 ):
     delivery = db.query(models.Delivery).filter(models.Delivery.id == delivery_id).first()
 

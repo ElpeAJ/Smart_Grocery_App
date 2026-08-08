@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import MapView, { Marker, type MapPressEvent, type Region } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { GOOGLE_PLACES_ENABLED } from '../src/config';
 import {
@@ -11,6 +10,17 @@ import {
   fetchGooglePlaceSuggestions,
   type GooglePlaceSuggestion,
 } from '../src/utils/googlePlaces';
+
+type Region = {
+  latitude: number;
+  longitude: number;
+  latitudeDelta: number;
+  longitudeDelta: number;
+};
+
+const NativeMaps = Platform.OS === 'web' ? null : require('react-native-maps');
+const NativeMapView = NativeMaps?.default as any;
+const NativeMarker = NativeMaps?.Marker as any;
 
 const GREATER_ACCRA_REGION: Region = {
   latitude: 5.66,
@@ -58,7 +68,7 @@ export default function MapPickerScreen() {
     longitude?: string;
     returnTo?: string;
   }>();
-  const mapRef = useRef<MapView | null>(null);
+  const mapRef = useRef<any>(null);
   const regionRef = useRef<Region>(GREATER_ACCRA_REGION);
   const placesSessionTokenRef = useRef(createPlacesSessionToken());
   const initialLatitude = params.latitude ? Number(params.latitude) : null;
@@ -296,7 +306,7 @@ export default function MapPickerScreen() {
     }
   };
 
-  const handleMapPress = (event: MapPressEvent) => {
+  const handleMapPress = (event: any) => {
     setPinCoords(event.nativeEvent.coordinate);
     setInfoText('Delivery point updated from the map pin.');
   };
@@ -382,42 +392,57 @@ export default function MapPickerScreen() {
       </View>
 
       <View style={styles.mapWrap}>
-        <MapView
-          ref={(instance) => {
-            mapRef.current = instance;
-          }}
-          style={styles.map}
-          initialRegion={initialRegion}
-          region={mapRegion}
-          onPress={handleMapPress}
-          onRegionChangeComplete={(region) => {
-            setMapRegion(region);
-            regionRef.current = region;
-          }}
-          zoomEnabled
-          zoomTapEnabled
-          scrollEnabled
-          rotateEnabled
-          pitchEnabled
-        >
-          {pinCoords ? (
-            <Marker
-              coordinate={pinCoords}
-              draggable
-              onDragEnd={(event) => setPinCoords(event.nativeEvent.coordinate)}
-              title="Delivery point"
-              description="This is where the driver will head."
-            />
-          ) : null}
-        </MapView>
-        <View style={styles.zoomControls}>
-          <TouchableOpacity style={styles.zoomButton} onPress={() => adjustZoom('in')}>
-            <Text style={styles.zoomButtonText}>+</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.zoomButton} onPress={() => adjustZoom('out')}>
-            <Text style={styles.zoomButtonText}>-</Text>
-          </TouchableOpacity>
-        </View>
+        {NativeMapView ? (
+          <>
+            <NativeMapView
+              ref={(instance: any) => {
+                mapRef.current = instance;
+              }}
+              style={styles.map}
+              initialRegion={initialRegion}
+              region={mapRegion}
+              onPress={handleMapPress}
+              onRegionChangeComplete={(region: Region) => {
+                setMapRegion(region);
+                regionRef.current = region;
+              }}
+              zoomEnabled
+              zoomTapEnabled
+              scrollEnabled
+              rotateEnabled
+              pitchEnabled
+            >
+              {pinCoords ? (
+                <NativeMarker
+                  coordinate={pinCoords}
+                  draggable
+                  onDragEnd={(event: any) => setPinCoords(event.nativeEvent.coordinate)}
+                  title="Delivery point"
+                  description="This is where the driver will head."
+                />
+              ) : null}
+            </NativeMapView>
+            <View style={styles.zoomControls}>
+              <TouchableOpacity style={styles.zoomButton} onPress={() => adjustZoom('in')}>
+                <Text style={styles.zoomButtonText}>+</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.zoomButton} onPress={() => adjustZoom('out')}>
+                <Text style={styles.zoomButtonText}>-</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : (
+          <View style={styles.webMapFallback}>
+            <Text style={styles.webMapFallbackTitle}>Map preview is available on mobile only</Text>
+            <Text style={styles.webMapFallbackText}>
+              The web build still supports address search and location confirmation, but the interactive
+              React Native map is hidden on desktop so the manager web app can load cleanly.
+            </Text>
+            <Text style={styles.webMapFallbackText}>
+              Use the search tools above, or open this screen in the mobile app for pin-drop map editing.
+            </Text>
+          </View>
+        )}
       </View>
 
       <TouchableOpacity style={styles.primaryButton} onPress={confirmLocation} disabled={loading}>
@@ -539,6 +564,22 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  webMapFallback: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    justifyContent: 'center',
+    gap: 10,
+  },
+  webMapFallbackTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  webMapFallbackText: {
+    color: '#475569',
+    lineHeight: 21,
   },
   zoomControls: {
     position: 'absolute',

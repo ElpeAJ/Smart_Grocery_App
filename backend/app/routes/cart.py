@@ -15,6 +15,7 @@ from ..payment_utils import (
     generate_payment_reference,
     initialize_paystack_transaction,
 )
+from ..tax_utils import compute_line_tax, get_product_tax_rate
 
 router = APIRouter(prefix="/cart", tags=["Cart"])
 
@@ -40,13 +41,34 @@ def get_or_create_cart(db: Session, user_id: int) -> models.Cart:
 
 
 def build_cart_response(cart: models.Cart) -> schemas.CartResponse:
-    total_amount = sum(item.quantity * item.product.price for item in cart.items)
+    subtotal_amount = sum(item.quantity * item.product.price for item in cart.items)
+    tax_total = sum(
+        compute_line_tax(item.product.price, item.quantity, item.product.tax_rate)
+        for item in cart.items
+    )
     return schemas.CartResponse.model_validate(
         {
             "id": cart.id,
             "store_id": cart.store_id,
-            "items": cart.items,
-            "total_amount": total_amount,
+            "items": [
+                {
+                    "id": item.id,
+                    "product_id": item.product_id,
+                    "quantity": item.quantity,
+                    "line_subtotal": round(item.quantity * item.product.price, 2),
+                    "line_tax": compute_line_tax(item.product.price, item.quantity, item.product.tax_rate),
+                    "line_total": round(
+                        item.quantity * item.product.price
+                        + compute_line_tax(item.product.price, item.quantity, item.product.tax_rate),
+                        2,
+                    ),
+                    "product": item.product,
+                }
+                for item in cart.items
+            ],
+            "subtotal_amount": round(subtotal_amount, 2),
+            "tax_total": round(tax_total, 2),
+            "total_amount": round(subtotal_amount + tax_total, 2),
         }
     )
 
@@ -72,6 +94,8 @@ def add_cart_item(
 
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
+    if not product.store or not product.store.is_open:
+        raise HTTPException(status_code=400, detail="This store is currently closed")
 
     if product.status != "in_stock" or product.stock_quantity <= 0:
         raise HTTPException(status_code=400, detail="Product is out of stock")
@@ -182,6 +206,14 @@ def checkout_cart(
     if not cart.items:
         raise HTTPException(status_code=400, detail="Your cart is empty")
 
+    if cart.store_id is not None:
+        store = db.query(models.Store).filter(models.Store.id == cart.store_id).first()
+        if not store or not store.is_open:
+            raise HTTPException(
+                status_code=400,
+                detail="This store is currently closed, so checkout is unavailable right now",
+            )
+
     try:
         selected_window = resolve_delivery_window(checkout_data.delivery_window_key)
     except ValueError as error:
@@ -204,12 +236,15 @@ def checkout_cart(
     db.flush()
 
     for item in cart.items:
+        tax_rate = get_product_tax_rate(item.product)
         db.add(
             models.OrderItem(
                 order_id=new_order.id,
                 product_id=item.product_id,
                 quantity=item.quantity,
                 unit_price=item.product.price,
+                tax_rate=tax_rate,
+                tax_amount=compute_line_tax(item.product.price, item.quantity, tax_rate),
             )
         )
         item.product.stock_quantity -= item.quantity
@@ -223,7 +258,13 @@ def checkout_cart(
                 kind="inventory",
             )
 
-    payment_amount = float(sum(item.quantity * item.product.price for item in cart.items))
+    payment_amount = float(
+        sum(
+            (item.quantity * item.product.price)
+            + compute_line_tax(item.product.price, item.quantity, item.product.tax_rate)
+            for item in cart.items
+        )
+    )
     payment = models.PaymentTransaction(
         order_id=new_order.id,
         method=checkout_data.payment_method,
@@ -237,6 +278,8 @@ def checkout_cart(
         payment.cash_confirmation_code = generate_cash_confirmation_code()
         payment.cash_code_generated_at = datetime.utcnow()
     else:
+        # For card and MoMo, the order is created first, then SmartGrocery asks
+        # Paystack for a hosted checkout URL tied to this order reference.
         payment.reference = generate_payment_reference(new_order.id)
         try:
             paystack_response = initialize_paystack_transaction(

@@ -1,5 +1,5 @@
 from typing import Literal, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -140,7 +140,7 @@ def get_all_orders(
     store_id: Optional[int] = Query(default=None),
     status: Optional[Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"]] = Query(default=None),
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff", "admin"))
 ):
     query = db.query(models.Order)
 
@@ -158,7 +158,7 @@ def update_order_status(
     order_id: int,
     status: Literal["pending", "accepted", "picking", "awaiting_review", "out_for_delivery", "delivered", "cancelled"],
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff", "admin"))
 ):
     order = db.query(models.Order).filter(models.Order.id == order_id).first()
 
@@ -172,9 +172,10 @@ def update_order_status(
                 detail="All items must be picked before the order can be submitted for review",
             )
         order.status = "awaiting_review"
+        order.review_requested_at = datetime.utcnow()
         create_notifications_for_roles(
             db,
-            roles=("manager",),
+            roles=("manager", "admin"),
             title="Order awaiting review",
             message=f"Order #{order.id} has been fully picked and is awaiting delivery approval.",
             kind="operations",
@@ -193,11 +194,17 @@ def update_order_status(
             detail="All items must be picked before the order can go out for delivery",
         )
     if status == "out_for_delivery":
-        if current_user.role != "manager":
-            raise HTTPException(
-                status_code=403,
-                detail="Only managers can release orders to delivery",
-            )
+        if current_user.role not in {"manager", "admin"}:
+            if current_user.role != "staff":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Only managers, admins, or fallback staff approvers can release orders to delivery",
+                )
+            if not order.review_requested_at or datetime.utcnow() - order.review_requested_at < timedelta(minutes=10):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Staff fallback approval unlocks 10 minutes after review is requested if a manager is unavailable",
+                )
         if order.status != "awaiting_review":
             raise HTTPException(
                 status_code=400,
@@ -211,6 +218,7 @@ def update_order_status(
 
     order.status = status
     if status == "out_for_delivery":
+        order.review_requested_at = None
         create_notification(
             db,
             user_id=order.user_id,
@@ -218,6 +226,14 @@ def update_order_status(
             message=f"Your order #{order.id} has been picked and is ready for delivery.",
             kind="order",
         )
+        if current_user.role == "staff":
+            create_notifications_for_roles(
+                db,
+                roles=("manager", "admin"),
+                title="Staff fallback approval used",
+                message=f"Staff fallback approval released order #{order.id} to delivery after the manager review wait window elapsed.",
+                kind="operations",
+            )
     elif status == "accepted":
         create_notification(
             db,
@@ -241,7 +257,7 @@ def update_order_item_pick_status(
     order_item_id: int,
     payload: schemas.OrderItemPickUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(require_roles("manager", "staff"))
+    current_user=Depends(require_roles("manager", "staff", "admin"))
 ):
     order_item = db.query(models.OrderItem).filter(models.OrderItem.id == order_item_id).first()
 
