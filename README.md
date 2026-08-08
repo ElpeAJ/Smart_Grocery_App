@@ -24,6 +24,9 @@ To manage variable multi-role access privileges safely, the system enforces a st
 * **Multi-User Interface Matrices:** Renders tailored interface workflows based on active user tokens (e.g., Customers, Store Managers, Delivery Logistics Agents).
 * **Data Privilege Boundaries:** Prevents privilege escalation and unauthorized data leaks by isolating user permissions at the database transaction query layer.
 
+<img width="413" height="867" alt="Manage Chat" src="https://github.com/user-attachments/assets/0f4e1b34-ea1a-4419-804f-1410e0e5a847" />
+<img width="414" height="865" alt="Open delivery maps" src="https://github.com/user-attachments/assets/3d018c27-5363-48c2-8c22-c68fecc5d441" />
+
 ### 3. Relational Database Design & Structural Validation
 The backend relies on structured database configurations designed to protect against common data integrity failures:
 * **Strict Input Sanitation:** Intercepts and parses runtime parameters before query evaluation to eliminate injection risks.
@@ -38,15 +41,16 @@ The backend relies on structured database configurations designed to protect aga
 * **API Ingestion Frameworks:** RESTful API Design Patterns, Structural JSON Payload Exchange
 * **Production Environments & Deployments:** Live Web Microservices (Vercel Production Deployment)
 
-## 📋 Comprehensive Data & Logic Pipeline
-1. **Request Ingestion:** The client-side application initializes a session request, appending authenticated user role metadata.
-2. **Gateway Verification:** The backend architecture parses incoming tokens to check security bounds before executing functions.
-3. **Database Transaction:** Validated triggers invoke optimized CRUD operations on the isolated relational database engine.
-4. **Payload Serializer:** Relational data columns are mapped into predictable, lightweight JSON array matrices.
-5. **State Hydration:** The mobile engine captures the incoming HTTP response stream and instantly updates active layout views.
+## 📋 Technical Stack & Tools
+* **System Architecture:** Full-Stack Decoupled Client-Server Ecosystem
+* **Frontend Delivery:** Native Mobile Framework Architecture (React Native / Expo Ecosystem located in `/smart-grocery-mobile`)
+* **Backend Runtime & Data Handling:** Local API Layer & Server Orchestration (located in `/backend`)
+* **Data Storage Engine:** Relational Database Infrastructure (MySQL / SQLite Deployment compatibility)
+* **API Ingestion Frameworks:** RESTful API Design Patterns, Structural JSON Payload Exchange
+* **Simulation & Client Deployment:** Expo Go Sandbox Ecosystem, Android Studio Emulator, Xcode iOS Simulator
+
 
 ## ⚙️ Project Installation & Execution Protocols
-
 This repository is split into independent subsystems. To operate or review the components locally, execute the following pipelines:
 
 ### 1. Fork and Clone the Architecture
