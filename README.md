@@ -1,5 +1,10 @@
 # Smart Grocery Ecosystem: Multi-Tier Architecture & Secure RBAC System
 
+<img width="415" height="867" alt="Shop 2" src="https://github.com/user-attachments/assets/71782253-2fdb-4bd9-8d9f-055450eb694f" />
+<img width="411" height="867" alt="Chat History" src="https://github.com/user-attachments/assets/b1514165-ff50-4b11-9292-52adfcfb0aeb" />
+<img width="412" height="867" alt="Staff Report" src="https://github.com/user-attachments/assets/29a0c1f0-4e6c-4bf6-91b3-9b9a697fb19b" />
+
+
 ## 📌 Project Overview
 This repository contains the complete codebase for the **Smart Grocery Application Ecosystem**, a multi-tier cross-platform solution developed as a BSc Final Year Capstone Project. The project features a distinct structural decoupling between its data management infrastructure (`backend`) and its client-facing presentation layer (`smart-grocery-mobile`). 
 
@@ -7,6 +12,8 @@ The architecture is explicitly engineered to handle secure, multi-role client in
 
 ## 📱 Application Interface
 ![Smart Grocery App Interface](./images/app_screenshot.png) 
+<img width="414" height="865" alt="Pick Order" src="https://github.com/user-attachments/assets/c529d763-e33e-4715-83bd-673176c41705" />
+
 *(Note: Replace with your actual application interface screenshot or live system mockup dashboards)*
 
 ## 🏛️ System Architecture & Engineering Patterns
