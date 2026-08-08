@@ -2,8 +2,6 @@
 
 <img width="415" height="867" alt="Shop 2" src="https://github.com/user-attachments/assets/71782253-2fdb-4bd9-8d9f-055450eb694f" />
 <img width="411" height="867" alt="Chat History" src="https://github.com/user-attachments/assets/b1514165-ff50-4b11-9292-52adfcfb0aeb" />
-<img width="412" height="867" alt="Staff Report" src="https://github.com/user-attachments/assets/29a0c1f0-4e6c-4bf6-91b3-9b9a697fb19b" />
-
 
 ## 📌 Project Overview
 This repository contains the complete codebase for the **Smart Grocery Application Ecosystem**, a multi-tier cross-platform solution developed as a BSc Final Year Capstone Project. The project features a distinct structural decoupling between its data management infrastructure (`backend`) and its client-facing presentation layer (`smart-grocery-mobile`). 
@@ -11,10 +9,8 @@ This repository contains the complete codebase for the **Smart Grocery Applicati
 The architecture is explicitly engineered to handle secure, multi-role client interactions, data isolation rules, and transactional input sanitation, modeling a robust enterprise software ecosystem.
 
 ## 📱 Application Interface
-![Smart Grocery App Interface](./images/app_screenshot.png) 
 <img width="414" height="865" alt="Pick Order" src="https://github.com/user-attachments/assets/c529d763-e33e-4715-83bd-673176c41705" />
-
-*(Note: Replace with your actual application interface screenshot or live system mockup dashboards)*
+<img width="412" height="867" alt="Staff Report" src="https://github.com/user-attachments/assets/29a0c1f0-4e6c-4bf6-91b3-9b9a697fb19b" />
 
 ## 🏛️ System Architecture & Engineering Patterns
 
@@ -53,25 +49,27 @@ The backend relies on structured database configurations designed to protect aga
 
 This repository is split into independent subsystems. To operate or review the components locally, execute the following pipelines:
 
-### 1. Repository Clone
-```bash
-git clone https://github.com
-cd Smart_Grocery_App
-```
+### 1. Fork and Clone the Architecture
+1. Navigate to the top-right corner of this repository page and click the **Fork** button to create an independent copy under your GitHub account.
+2. Open your local terminal environment and clone your newly forked repository:
+   ```bash
+   git clone https://github.com
+   cd Smart_Grocery_App
+   ```
 
 ### 2. Backend Setup & Run Environment
 ```bash
 cd backend
 # Execute your local environment configuration or server init commands here
-# Example: npm install && npm start OR cargo run (if Rust)
+# Command to run: uvicorn app.main:app --reload --host 127.0.0.1 --port 8002
 ```
 
 ### 3. Mobile Client Compilation
 ```bash
 cd ../smart-grocery-mobile
 # Initialize dependencies and target mobile simulator scripts
-# Example: npm install && expo start OR flutter run
+# Command to run: npx expo start -- iOS OR npx expo start -- android
 ```
 
 ---
-*Developed as a premier BSc Final Year Capstone Project artifact, exploring scalable systems engineering, multi-role security models, and relational data architecture.*
+*Developed as a premier BSc Final Year Capstone Project, exploring scalable systems engineering, multi-role security models, and relational data architecture.*
